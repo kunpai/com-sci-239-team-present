@@ -1,0 +1,64 @@
+{
+  "arm": "A",
+  "repeat": 1,
+  "step": 1,
+  "kind": "llm",
+  "memory": [],
+  "role": "generate",
+  "prompt": "Write a C function that multiplies two square matrices as fast as you can:\n\n    void matmul(const float *A, const float *B, float *C, int n);\n\nIt computes C = A * B for n x n float matrices in row-major order, so element (i, j) of A is A[i*n + j]. The buffers do not overlap and C is uninitialized, so write every element. It must be correct for every positive n (small floating-point differences are fine). The benchmark uses large matrices.\n\nDo not define main. The file is compiled with gcc together with a benchmark harness. Flags that set the output file, add include or library paths, or pass options to the linker are rejected.\n\nReply with the complete source file in one fenced code block, then on its own line the gcc flags you want, for example:\n\nFLAGS: -O3\n",
+  "text": "```c\n#include <stdlib.h>\n#include <string.h>\n#include <pthread.h>\n#include <unistd.h>\n\n#define MR 6\n#define NR 16\n#define KC 256\n#define MC 96\n#define NC 1024\n\ntypedef float v8 __attribute__((vector_size(32)));\ntypedef float v8u __attribute__((vector_size(32), aligned(4)));\n\nstatic void pack_B(const float *B, float *dst, int n, int pc, int kc, int jc, int nc)\n{\n    for (int js = 0; js < nc; js += NR) {\n        int w = nc - js < NR ? nc - js : NR;\n        for (int p = 0; p < kc; p++) {\n            const float *src = B + (size_t)(pc + p) * n + jc + js;\n            int jj = 0;\n            for (; jj < w; jj++) dst[jj] = src[jj];\n            for (; jj < NR; jj++) dst[jj] = 0.0f;\n            dst += NR;\n        }\n    }\n}\n\nstatic void pack_A(const float *A, float *dst, int n, int ic, int mc, int pc, int kc)\n{\n    for (int is = 0; is < mc; is += MR) {\n        int h = mc - is < MR ? mc - is : MR;\n        const float *rows[MR];\n        for (int r = 0; r < MR; r++)\n            rows[r] = A + (size_t)(ic + is + (r < h ? r : 0)) * n + pc;\n        for (int p = 0; p < kc; p++) {\n            for (int r = 0; r < MR; r++)\n                dst[r] = r < h ? rows[r][p] : 0.0f;\n            dst += MR;\n        }\n    }\n}\n\nstatic inline void kernel(int kc, const float *restrict a, const float *restrict b,\n                          float *restrict c, int ldc, int mr, int nr, int first)\n{\n    v8 c00 = {0}, c01 = {0}, c10 = {0}, c11 = {0}, c20 = {0}, c21 = {0};\n    v8 c30 = {0}, c31 = {0}, c40 = {0}, c41 = {0}, c50 = {0}, c51 = {0};\n\n    for (int p = 0; p < kc; p++) {\n        v8 b0 = *(const v8 *)(b);\n        v8 b1 = *(const v8 *)(b + 8);\n        float a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5];\n        c00 += a0 * b0; c01 += a0 * b1;\n        c10 += a1 * b0; c11 += a1 * b1;\n        c20 += a2 * b0; c21 += a2 * b1;\n        c30 += a3 * b0; c31 += a3 * b1;\n        c40 += a4 * b0; c41 += a4 * b1;\n        c50 += a5 * b0; c51 += a5 * b1;\n        a += MR;\n        b += NR;\n    }\n\n    if (mr == MR && nr == NR) {\n#define ST(r, x0, x1)                                              \\\n        do {                                                       \\\n            v8u *q0 = (v8u *)(c + (size_t)(r) * ldc);              \\\n            v8u *q1 = (v8u *)(c + (size_t)(r) * ldc + 8);          \\\n            if (first) { *q0 = x0; *q1 = x1; }                     \\\n            else { *q0 += x0; *q1 += x1; }                         \\\n        } while (0)\n        ST(0, c00, c01); ST(1, c10, c11); ST(2, c20, c21);\n        ST(3, c30, c31); ST(4, c40, c41); ST(5, c50, c51);\n#undef ST\n    } else {\n        float t[MR][NR] __attribute__((aligned(32)));\n        *(v8 *)&t[0][0] = c00; *(v8 *)&t[0][8] = c01;\n        *(v8 *)&t[1][0] = c10; *(v8 *)&t[1][8] = c11;\n        *(v8 *)&t[2][0] = c20; *(v8 *)&t[2][8] = c21;\n        *(v8 *)&t[3][0] = c30; *(v8 *)&t[3][8] = c31;\n        *(v8 *)&t[4][0] = c40; *(v8 *)&t[4][8] = c41;\n        *(v8 *)&t[5][0] = c50; *(v8 *)&t[5][8] = c51;\n        for (int r = 0; r < mr; r++) {\n            float *cr = c + (size_t)r * ldc;\n            if (first)\n                for (int j = 0; j < nr; j++) cr[j] = t[r][j];\n            else\n                for (int j = 0; j < nr; j++) cr[j] += t[r][j];\n        }\n    }\n}\n\ntypedef struct {\n    const float *A, *B;\n    float *C;\n    int n, r0, r1;\n} job_t;\n\nstatic void compute_rows(const float *A, const float *B, float *C, int n, int r0, int r1)\n{\n    if (r0 >= r1) return;\n    float *bp = NULL, *ap = NULL;\n    size_t nc_alloc = (size_t)((n < NC ? n : NC) + NR) * KC;\n    if (posix_memalign((void **)&bp, 64, nc_alloc * sizeof(float)) ||\n        posix_memalign((void **)&ap, 64, (size_t)(MC + MR) * KC * sizeof(float))) {\n        /* fallback: naive */\n        free(bp); free(ap);\n        for (int i = r0; i < r1; i++) {\n            float *ci = C + (size_t)i * n;\n            for (int j = 0; j < n; j++) ci[j] = 0.0f;\n            for (int k = 0; k < n; k++) {\n                float a = A[(size_t)i * n + k];\n                const float *bk = B + (size_t)k * n;\n                for (int j = 0; j < n; j++) ci[j] += a * bk[j];\n            }\n        }\n        return;\n    }\n\n    for (int jc = 0; jc < n; jc += NC) {\n        int nc = n - jc < NC ? n - jc : NC;\n        for (int pc = 0; pc < n; pc += KC) {\n            int kc = n - pc < KC ? n - pc : KC;\n            int first = (pc == 0);\n            pack_B(B, bp, n, pc, kc, jc, nc);\n            for (int ic = r0; ic < r1; ic += MC) {\n                int mc = r1 - ic < MC ? r1 - ic : MC;\n                pack_A(A, ap, n, ic, mc, pc, kc);\n                for (int jr = 0; jr < nc; jr += NR) {\n                    int nr = nc - jr < NR ? nc - jr : NR;\n                    const float *bpp = bp + (size_t)jr * kc;\n                    for (int ir = 0; ir < mc; ir += MR) {\n                        int mr = mc - ir < MR ? mc - ir : MR;\n                        kernel(kc, ap + (size_t)ir * kc, bpp,\n                               C + (size_t)(ic + ir) * n + jc + jr, n, mr, nr, first);\n                    }\n                }\n            }\n        }\n    }\n    free(bp);\n    free(ap);\n}\n\nstatic void *worker(void *arg)\n{\n    job_t *j = (job_t *)arg;\n    compute_rows(j->A, j->B, j->C, j->n, j->r0, j->r1);\n    return NULL;\n}\n\nvoid matmul(const float *A, const float *B, float *C, int n)\n{\n    if (n <= 0) return;\n\n    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);\n    if (ncpu < 1) ncpu = 1;\n    if (ncpu > 64) ncpu = 64;\n\n    int strips = (n + MR - 1) / MR;\n    int nt = (int)ncpu;\n    if ((double)n * n * n < 2e6) nt = 1;\n    if (nt > strips) nt = strips;\n\n    if (nt <= 1) {\n        compute_rows(A, B, C, n, 0, n);\n        return;\n    }\n\n    pthread_t th[64];\n    job_t jobs[64];\n    int created[64];\n    for (int t = 0; t < nt; t++) {\n        int s0 = (int)((long)strips * t / nt);\n        int s1 = (int)((long)strips * (t + 1) / nt);\n        int r0 = s0 * MR, r1 = s1 * MR;\n        if (r1 > n) r1 = n;\n        if (r0 > n) r0 = n;\n        jobs[t] = (job_t){A, B, C, n, r0, r1};\n    }\n    for (int t = 1; t < nt; t++)\n        created[t] = pthread_create(&th[t], NULL, worker, &jobs[t]) == 0;\n    worker(&jobs[0]);\n    for (int t = 1; t < nt; t++) {\n        if (created[t]) pthread_join(th[t], NULL);\n        else worker(&jobs[t]);\n    }\n}\n```\n\nFLAGS: -O3 -march=native -ffast-math -funroll-loops",
+  "session_id": "49ce7414-17aa-47bd-a450-a41d408244e9",
+  "cost_usd": 0.12376219999999999,
+  "duration_s": 45.239,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 2301,
+    "cache_read_input_tokens": 531,
+    "output_tokens": 5262,
+    "output_tokens_details": {
+      "thinking_tokens": 2008
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 2301,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 5262,
+        "cache_read_input_tokens": 531,
+        "cache_creation_input_tokens": 2301,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 2301
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 5262,
+      "cacheReadInputTokens": 531,
+      "cacheCreationInputTokens": 2301,
+      "webSearchRequests": 0,
+      "costUSD": 0.12376219999999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 2008,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "round_no": 0
+}

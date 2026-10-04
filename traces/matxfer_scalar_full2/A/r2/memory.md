@@ -1,0 +1,19 @@
+- **Baseline (Attempt 0, 11.0 ms):** BLIS-style packing + 6×16 AVX2 kernel with OpenMP; 191x over naive.
+- **Biggest gain (→8.4 ms):** 12×32 AVX-512 micro-kernel (on `__AVX512F__`), with all of A and B packed once into full-k panels instead of repacking A per task.
+- **Best (Attempt 4, 7.9 ms):**
+  - Static, reused buffers.
+  - KC≈256 so the 12 KB A slice + 32 KB B micro-panel fit in L1.
+  - Per task: p outer, q inner over a 256-column B block.
+  - mpt = clamp(mp·ntn/(4·nth), 1, 8).
+  - Masked AVX-512 edge stores.
+- **Regressions:**
+  - Unpacked A (12 strided streams, 4K aliasing): 8.7 ms.
+  - KC=384 overflows L1.
+  - Cost-model thin tiles/N-splits (repeated A packing, low B reuse): 8.1–8.7 ms.
+  - Forced-inline kernel with manual ×4 unroll spills: 13.7 ms.
+- **Neutral (8.0–8.3 ms):** lazy per-panel packing with atomic flags; in-register 16×16 transpose for A packing; C prefetch.
+- **Next (one change at a time on Attempt 4):**
+  - `proc_bind(spread)` or physical-core thread count.
+  - Per-(panel, pc) B flags with thread-owned A rows.
+  - Check asm for `{1to16}` broadcasts and spills.
+  - 14×32 kernel or smaller NCW.

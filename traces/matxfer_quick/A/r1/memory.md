@@ -1,0 +1,15 @@
+- **Attempt 0 (baseline):** BLIS-style packing, 6×2VW vector-extension kernel, OpenMP over row blocks. 9.1 ms (~220 GFLOP/s).
+- **Attempt 1:** 2D task split, KC=384, 12×32 AVX-512 tile. 8.9 ms (~2% better), so thread count isn't the bottleneck.
+- **Attempt 2:** static grow-only buffers, contiguous A-pack stores, KC≈512, in-loop prefetches. 9.2 ms (slightly worse). Prefetch µops likely hurt; the warm-page fix had no measurable effect.
+- **Attempt 3 (best):** loop order kk→mp→p (A micro-panel in L1, B panels in L2), no in-loop prefetch, C prefetch only when accumulating, scalar×vector broadcast. 8.5 ms.
+- **Diagnosis:** runtime stays flat at 8.5–9.2 ms across all restructurings, so the kernel is likely not the limit. Suspects:
+  - serial full-matrix packing behind a barrier (~8 MB, cold by the time it's used)
+  - OpenMP region startup
+  - memory bandwidth
+- **Unverified:** whether AVX-512 is actually present.
+- **Next:**
+  - Time the pack and compute phases separately.
+  - Pack A per task into thread-local buffers and overlap the B pack.
+  - Use an MR/NR that divides 1000 (8×32 or 16×16) to avoid 1000%12 edge waste.
+  - Try a single k pass (kc=n) for n≤1024 to eliminate C read-modify-write passes.
+  - Cap threads at the physical core count.

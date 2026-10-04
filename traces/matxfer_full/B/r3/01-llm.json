@@ -1,0 +1,64 @@
+{
+  "arm": "B",
+  "repeat": 3,
+  "step": 1,
+  "kind": "llm",
+  "memory": [],
+  "role": "generate",
+  "prompt": "You are optimizing a C function for speed.\n\nWrite a single C source file that defines\n\n    void matmul(const float *A, const float *B, float *C, int n);\n\nwhich computes C = A * B for square n x n matrices of single-precision (float) values stored in row-major order, so element (i, j) of A is A[i*n + j]. The three buffers do not overlap. C is not initialized: your function must write every element of C.\n\nRequirements:\n- The result must be correct for every positive n, not only for convenient sizes. Results are checked against a reference with a relative tolerance of about 1e-3, so reordering floating-point sums is fine.\n- The benchmark runs large matrices (around a thousand rows and columns) and reports the best of several runs, so optimize for large n.\n- The file is compiled with gcc and linked, together with a fixed benchmark harness that calls matmul, against the C math library and pthreads. Do not define main. Only the C standard library, libm, pthreads and OpenMP are available.\n- You choose the compiler flags. They are passed to gcc as given (for example -O3 or -fopenmp). Flags that set the output file, add include or library paths, or pass options through to the linker are rejected.\n- The program is built and run inside a Linux container, not on the machine you are running on. The CPU is not disclosed.\n- Optimize for speed on the machine this runs on.\n\nReply format. Reply with the complete source file in exactly one fenced block:\n\n```c\n...\n```\n\nfollowed on its own line by the compiler flags, for example:\n\nFLAGS: -O3 -march=native\n\nDo not write any other code block or any other line starting with FLAGS:.\n",
+  "text": "```c\n#include <stdlib.h>\n#include <string.h>\n#include <omp.h>\n\n#if defined(__AVX512F__)\n#define VW 16\n#else\n#define VW 8\n#endif\n\ntypedef float vf __attribute__((vector_size(VW * 4)));\n\n#define MR 6\n#define NR (2 * VW)\n#define KC 256\n#define MC 72\n#define NCB 192\n\nstatic inline __attribute__((always_inline)) vf ldu(const float *p) {\n    vf v;\n    memcpy(&v, p, sizeof(vf));\n    return v;\n}\nstatic inline __attribute__((always_inline)) void stu(float *p, vf v) {\n    memcpy(p, &v, sizeof(vf));\n}\n\nstatic inline __attribute__((always_inline)) void kern(int kc, const float *a, const float *b,\n                                                      float *c, int ldc, int acc) {\n    vf c00 = {0}, c01 = {0}, c10 = {0}, c11 = {0}, c20 = {0}, c21 = {0};\n    vf c30 = {0}, c31 = {0}, c40 = {0}, c41 = {0}, c50 = {0}, c51 = {0};\n    for (int p = 0; p < kc; p++) {\n        vf b0 = ((const vf *)b)[0];\n        vf b1 = ((const vf *)b)[1];\n        float a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5];\n        c00 += a0 * b0; c01 += a0 * b1;\n        c10 += a1 * b0; c11 += a1 * b1;\n        c20 += a2 * b0; c21 += a2 * b1;\n        c30 += a3 * b0; c31 += a3 * b1;\n        c40 += a4 * b0; c41 += a4 * b1;\n        c50 += a5 * b0; c51 += a5 * b1;\n        a += MR;\n        b += NR;\n    }\n#define ST(r, x0, x1)                                                  \\\n    do {                                                               \\\n        float *cr = c + (size_t)(r) * ldc;                             \\\n        if (acc) { x0 += ldu(cr); x1 += ldu(cr + VW); }                \\\n        stu(cr, x0); stu(cr + VW, x1);                                 \\\n    } while (0)\n    ST(0, c00, c01); ST(1, c10, c11); ST(2, c20, c21);\n    ST(3, c30, c31); ST(4, c40, c41); ST(5, c50, c51);\n#undef ST\n}\n\nvoid matmul(const float *A, const float *B, float *C, int n) {\n    if (n <= 0) return;\n    int npan = (n + NR - 1) / NR;\n    size_t bsz = (size_t)KC * npan * NR * sizeof(float);\n    bsz = (bsz + 63) & ~(size_t)63;\n    float *Bp = (float *)aligned_alloc(64, bsz);\n    int nib = (n + MC - 1) / MC, njb = (n + NCB - 1) / NCB;\n    int ntiles = nib * njb;\n\n#pragma omp parallel\n    {\n        float *Ap = (float *)aligned_alloc(64, (size_t)MC * KC * sizeof(float));\n        float tmp[MR * NR] __attribute__((aligned(64)));\n\n        for (int pc = 0; pc < n; pc += KC) {\n            int kc = n - pc < KC ? n - pc : KC;\n            int acc = pc > 0;\n\n#pragma omp for schedule(static)\n            for (int jp = 0; jp < npan; jp++) {\n                float *dst = Bp + (size_t)jp * kc * NR;\n                int j0 = jp * NR;\n                int nr = n - j0 < NR ? n - j0 : NR;\n                for (int p = 0; p < kc; p++) {\n                    const float *src = B + (size_t)(pc + p) * n + j0;\n                    float *d = dst + (size_t)p * NR;\n                    int c = 0;\n                    for (; c < nr; c++) d[c] = src[c];\n                    for (; c < NR; c++) d[c] = 0.0f;\n                }\n            }\n\n#pragma omp for schedule(dynamic, 1)\n            for (int t = 0; t < ntiles; t++) {\n                int ib = t / njb, jb = t % njb;\n                int i0 = ib * MC;\n                int mc = n - i0 < MC ? n - i0 : MC;\n                int j0 = jb * NCB;\n                int nc = n - j0 < NCB ? n - j0 : NCB;\n\n                for (int ir = 0; ir < mc; ir += MR) {\n                    float *d = Ap + (size_t)(ir / MR) * kc * MR;\n                    int mr = mc - ir < MR ? mc - ir : MR;\n                    const float *src = A + (size_t)(i0 + ir) * n + pc;\n                    for (int p = 0; p < kc; p++) {\n                        int r = 0;\n                        for (; r < mr; r++) d[p * MR + r] = src[(size_t)r * n + p];\n                        for (; r < MR; r++) d[p * MR + r] = 0.0f;\n                    }\n                }\n\n                for (int jr = j0; jr < j0 + nc; jr += NR) {\n                    int nr = j0 + nc - jr < NR ? j0 + nc - jr : NR;\n                    const float *bpan = Bp + (size_t)(jr / NR) * kc * NR;\n                    for (int ir = 0; ir < mc; ir += MR) {\n                        int mr = mc - ir < MR ? mc - ir : MR;\n                        const float *apan = Ap + (size_t)(ir / MR) * kc * MR;\n                        float *cp = C + (size_t)(i0 + ir) * n + jr;\n                        if (mr == MR && nr == NR) {\n                            kern(kc, apan, bpan, cp, n, acc);\n                        } else {\n                            kern(kc, apan, bpan, tmp, NR, 0);\n                            for (int r = 0; r < mr; r++) {\n                                float *crow = cp + (size_t)r * n;\n                                const float *trow = tmp + r * NR;\n                                if (acc)\n                                    for (int c = 0; c < nr; c++) crow[c] += trow[c];\n                                else\n                                    for (int c = 0; c < nr; c++) crow[c] = trow[c];\n                            }\n                        }\n                    }\n                }\n            }\n        }\n        free(Ap);\n    }\n    free(Bp);\n}\n```\nFLAGS: -O3 -march=native -fopenmp -funroll-loops",
+  "session_id": "85f5df4a-da7f-44c3-98ec-47e792bcd0b9",
+  "cost_usd": 0.10216999999999998,
+  "duration_s": 44.431,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 3110,
+    "output_tokens": 5077,
+    "output_tokens_details": {
+      "thinking_tokens": 2818
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 5077,
+        "cache_read_input_tokens": 3110,
+        "cache_creation_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 5077,
+      "cacheReadInputTokens": 3110,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.10216999999999998,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 2818,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "trial": 1
+}

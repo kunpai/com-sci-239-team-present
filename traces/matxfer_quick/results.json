@@ -1,0 +1,61 @@
+{
+  "config": {
+    "rounds": 3,
+    "repeats": 1,
+    "trials": 3,
+    "window": 3,
+    "memory_cap_words": 200,
+    "lesson_cap_words": 80,
+    "n": 1024,
+    "reps": 3,
+    "cpus": 4,
+    "mem_limit": "4g",
+    "llm_timeout_s": 300,
+    "compile_timeout_s": 300,
+    "run_timeout_s": 1800,
+    "max_naive_s": 120.0,
+    "model": null
+  },
+  "naive_ms": {
+    "amd64": 2077.198,
+    "armv7": 4149.78
+  },
+  "refine": [
+    {
+      "repeat": 1,
+      "speedups": [
+        227.26455142231944,
+        234.0768537299977,
+        225.8314851054577,
+        243.77397019129205
+      ],
+      "best_speedup": 243.77397019129205,
+      "memory": "- **Attempt 0 (baseline):** BLIS-style packing, 6\u00d72VW vector-extension kernel, OpenMP over row blocks. 9.1 ms (~220 GFLOP/s).\n- **Attempt 1:** 2D task split, KC=384, 12\u00d732 AVX-512 tile. 8.9 ms (~2% better), so thread count isn't the bottleneck.\n- **Attempt 2:** static grow-only buffers, contiguous A-pack stores, KC\u2248512, in-loop prefetches. 9.2 ms (slightly worse). Prefetch \u00b5ops likely hurt; the warm-page fix had no measurable effect.\n- **Attempt 3 (best):** loop order kk\u2192mp\u2192p (A micro-panel in L1, B panels in L2), no in-loop prefetch, C prefetch only when accumulating, scalar\u00d7vector broadcast. 8.5 ms.\n- **Diagnosis:** runtime stays flat at 8.5\u20139.2 ms across all restructurings, so the kernel is likely not the limit. Suspects:\n  - serial full-matrix packing behind a barrier (~8 MB, cold by the time it's used)\n  - OpenMP region startup\n  - memory bandwidth\n- **Unverified:** whether AVX-512 is actually present.\n- **Next:**\n  - Time the pack and compute phases separately.\n  - Pack A per task into thread-local buffers and overlap the B pack.\n  - Use an MR/NR that divides 1000 (8\u00d732 or 16\u00d716) to avoid 1000%12 edge waste.\n  - Try a single k pass (kc=n) for n\u22641024 to eliminate C read-modify-write passes.\n  - Cap threads at the physical core count.",
+      "note": ""
+    }
+  ],
+  "arms": [
+    {
+      "arm": "B",
+      "repeat": 1,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 2.617081175440765,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 1,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 4.1375824070639755,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    }
+  ]
+}

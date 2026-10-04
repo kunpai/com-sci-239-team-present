@@ -1,0 +1,150 @@
+{
+  "config": {
+    "rounds": 10,
+    "repeats": 3,
+    "trials": 3,
+    "window": 3,
+    "memory_cap_words": 200,
+    "lesson_cap_words": 80,
+    "n": 1024,
+    "reps": 3,
+    "cpus": 4,
+    "mem_limit": "4g",
+    "llm_timeout_s": 300,
+    "compile_timeout_s": 300,
+    "run_timeout_s": 1800,
+    "max_naive_s": 120.0,
+    "model": null
+  },
+  "naive_ms": {
+    "amd64": 2116.127,
+    "armv7": 4068.18
+  },
+  "refine": [
+    {
+      "repeat": 1,
+      "speedups": [
+        193.55410225921523,
+        155.8382060534649,
+        173.08416489448715,
+        152.0096975791969,
+        156.8198458574181,
+        159.13122274026168,
+        167.0582616246941,
+        154.37168077035307,
+        199.99310084113034,
+        177.31917211328977,
+        193.89105735752244
+      ],
+      "best_speedup": 199.99310084113034,
+      "memory": "- **Baseline (best):** Attempt 0/8 structure: per-pc parallel region, cooperative B pack into shared buffer, then collapse(2) dynamic,1 over 128-row \u00d7 64-col tasks with private A pack. Runs 10.6\u201310.9 ms (~195\u2013200x over naive). All attempts landed in 10.6\u201313.9 ms, so differences are near noise.\n- **Hurt (12\u201314 ms):**\n  - Full up-front packing without KC blocking (A3, A4)\n  - Static 2-D thread grids with private B packing (A6)\n  - Coarse tasks, fewer than 4\u00d7nt (A1, A9)\n  - Double-buffered B with static slicing (A7)\n  - MC=64 (A5)\n- **Key insight:** Dynamic fine-grained scheduling beat every static scheme. The machine likely has many cores, and tail imbalance dominates.\n- **Neutral:** last_ib A-reuse cache (A8, ~0.3 ms, likely noise), MR=12 on AVX-512 (A10), parallel region outside or static buffers (A9).\n- **Next:**\n  - Pack all of A per pc cooperatively with B in the same omp for, so compute has zero packing. Keep dynamic,1 fine tasks.\n  - JCHUNK=NR*2 for more tasks.\n  - KC=384 alone.\n  - Masked edge stores.\n  - Maybe num_threads = physical cores.\n  - Verify AVX-512 is present; the AVX2 path may be what runs.",
+      "note": ""
+    },
+    {
+      "repeat": 2,
+      "speedups": [
+        191.55671222956457,
+        252.22014302741357,
+        233.25914902998238,
+        258.0957433833394,
+        266.4140752864157,
+        244.63895953757225,
+        242.81434308663225,
+        154.98220301743078,
+        260.22220855878015,
+        264.97958928124217,
+        256.2207289018041
+      ],
+      "best_speedup": 266.4140752864157,
+      "memory": "- **Baseline (Attempt 0, 11.0 ms):** BLIS-style packing + 6\u00d716 AVX2 kernel with OpenMP; 191x over naive.\n- **Biggest gain (\u21928.4 ms):** 12\u00d732 AVX-512 micro-kernel (on `__AVX512F__`), with all of A and B packed once into full-k panels instead of repacking A per task.\n- **Best (Attempt 4, 7.9 ms):**\n  - Static, reused buffers.\n  - KC\u2248256 so the 12 KB A slice + 32 KB B micro-panel fit in L1.\n  - Per task: p outer, q inner over a 256-column B block.\n  - mpt = clamp(mp\u00b7ntn/(4\u00b7nth), 1, 8).\n  - Masked AVX-512 edge stores.\n- **Regressions:**\n  - Unpacked A (12 strided streams, 4K aliasing): 8.7 ms.\n  - KC=384 overflows L1.\n  - Cost-model thin tiles/N-splits (repeated A packing, low B reuse): 8.1\u20138.7 ms.\n  - Forced-inline kernel with manual \u00d74 unroll spills: 13.7 ms.\n- **Neutral (8.0\u20138.3 ms):** lazy per-panel packing with atomic flags; in-register 16\u00d716 transpose for A packing; C prefetch.\n- **Next (one change at a time on Attempt 4):**\n  - `proc_bind(spread)` or physical-core thread count.\n  - Per-(panel, pc) B flags with thread-owned A rows.\n  - Check asm for `{1to16}` broadcasts and spills.\n  - 14\u00d732 kernel or smaller NCW.",
+      "note": ""
+    },
+    {
+      "repeat": 3,
+      "speedups": [
+        193.60722781335772,
+        176.68255823662017,
+        262.38400495970245,
+        261.3147690787849,
+        246.5199207828518,
+        270.881592421915,
+        195.847015270708,
+        258.69523227383866,
+        268.06777299214593,
+        263.6918380062305,
+        246.7786588921283
+      ],
+      "best_speedup": 270.881592421915,
+      "memory": "- Baseline: packed BLIS-style 6\u00d716 AVX2 kernel + OpenMP gave 10.9 ms (~180 GFLOP/s at n\u22481000).\n- Biggest win (\u21928.1 ms): explicit-intrinsic register-blocked kernel (named accumulators via macros, 12\u00d732 AVX-512 / 6\u00d716 AVX2), full-tile fast path with edge tiles computed into a padded stack tmp. Generic `acc[][]` arrays + memcpy spilled (12.0 ms).\n- Small win (\u21927.8 ms, maybe noise): one thread per physical core (cgroup quota + SMT detection), static grow-only buffers, dynamic pack scheduling.\n- No gain / regressions: per-task A packing (8.1), per-task B repacking (8.6), in-loop conditional A prefetch + THP madvise (10.8, prefetch likely culprit), unpacked A with 4 KB row stride (8.2), double-buffered per-kc phases (7.9), static 2D grid ownership (8.0), runtime autotuning across candidates (8.6 \u2014 warm-up/bad candidates counted).\n- Every structural variant plateaus at 7.8\u20138.2 ms \u2192 limit is likely thread count/frequency or kernel throughput, not scheduling. ISA path and thread count were never confirmed.\n- Next: emit one-time stderr diagnostics (ISA, g_nt, procs, 1-thread GFLOP/s); try all logical CPUs; AVX2 KC=512 or 8\u00d724 tile; keep Attempt 5 as base and change one thing at a time.",
+      "note": ""
+    }
+  ],
+  "arms": [
+    {
+      "arm": "B",
+      "repeat": 1,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 5.969940303238418,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 1,
+      "first_try_success": false,
+      "trials_to_success": 2,
+      "final_speedup": 5.605468534706071,
+      "first_failure_stage": "compile",
+      "n_steps": 2,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "B",
+      "repeat": 2,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 6.329019792091253,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 2,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 6.94626953338433,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "B",
+      "repeat": 3,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 4.644401620217094,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 3,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 7.6735961128202606,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    }
+  ]
+}

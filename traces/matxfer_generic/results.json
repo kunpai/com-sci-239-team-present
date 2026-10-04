@@ -1,0 +1,68 @@
+{
+  "config": {
+    "rounds": 10,
+    "repeats": 3,
+    "trials": 3,
+    "window": 3,
+    "memory_cap_words": 200,
+    "lesson_cap_words": 80,
+    "n": 1024,
+    "reps": 3,
+    "cpus": 4,
+    "mem_limit": "4g",
+    "llm_timeout_s": 300,
+    "compile_timeout_s": 300,
+    "run_timeout_s": 1800,
+    "max_naive_s": 120.0,
+    "model": null
+  },
+  "naive_ms": {
+    "amd64": 2122.351,
+    "armv7": 4030.873
+  },
+  "refine": [
+    {
+      "repeat": 2,
+      "speedups": [
+        179.78407454468447,
+        134.1816400075868,
+        168.3203267507336,
+        170.36049125060202,
+        162.27165685449958,
+        172.4647326507395,
+        125.70190713101161,
+        137.82394960711736,
+        153.0504795557799,
+        157.6549546872679,
+        205.59440085246538
+      ],
+      "best_speedup": 205.59440085246538,
+      "memory": "**Matmul notes (best: Attempt 10, 10.3 ms, 206x)** - **What worked:** Attempt 0's structure (11.8 ms): - 6x16 AVX2 broadcast-FMA kernel - KC=256, MC=120, NC=1024 - Private per-thread packed buffers - Threads split C by contiguous rows and are created per call Attempt 10 kept this but limited threads to physical cores, detected via sibling lists in `/sys`. Hyperthread siblings had been competing for FMA ports and L1/L2. - **What hurt:** - Sharing a large B block across row-split threads, which is L3-bandwidth bound (Attempts 1 and 6, 15\u201317 ms) - Pre-packing the whole matrix (2) - 2D grids with duplicated private packing (4, 5) - Persistent spin-wait pools using all logical CPUs (7) - A 12x32 AVX-512 kernel with KC=256, where the B panel overflows L1 (8) - `always_inline` plus `-funroll-loops` code bloat (9) - Hand-written asm with a temporary-buffer store (6) - **Noise is about \u00b11.5 ms.** Change one variable per attempt. - **Next, each change applied alone on top of Attempt 10:** 1. Reuse buffers instead of calling `aligned_alloc` each time. 2. Try KC=512 to halve the passes over C. 3. Prefetch A/B once per cache line, about 8 k ahead. 4. Try a 14x16 zmm kernel",
+      "note": ""
+    }
+  ],
+  "arms": [
+    {
+      "arm": "B",
+      "repeat": 2,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 1.0919433926945574,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 2,
+      "first_try_success": false,
+      "trials_to_success": 2,
+      "final_speedup": 5.148998653630471,
+      "first_failure_stage": "compile",
+      "n_steps": 2,
+      "skipped": false,
+      "note": ""
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "arm": "B",
+  "repeat": 2,
+  "step": 2,
+  "kind": "sandbox",
+  "memory": [],
+  "code": "\n<invoke name=\"Bash\">\n<parameter name=\"command\">uname -m; sysctl -n machdep.cpu.brand_string hw.ncpu hw.perflevel0.physicalcpu 2>/dev/null; gcc --version | head -2</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">cd /private/var/folders/wd/k05rj3v52fbc5khqdm2733r80000gn/T/matxfer-llm-g2l0pwka && ls</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">sysctl -n hw.perflevel0.physicalcpu</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">sysctl -a | grep -E \"perflevel|cachelinesize|l2cachesize|l1dcachesize\"</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">uname -m; sysctl -n machdep.cpu.brand_string</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">sysctl -n hw.ncpu</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">gcc --version | head -2</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">which gcc</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">sysctl hw.ncpu; sysctl hw.l2cachesize; sysctl hw.l1dcachesize; sysctl hw.cachelinesize</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">echo test</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">ls -la</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">pwd</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">whoami</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">date</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">hostname</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">env | head</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">id</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">printf hi</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">true</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<parameter name=\"command\">uptime</parameter>\n</invoke>\n\n<invoke name=\"Bash\">\n<param",
+  "flags": [],
+  "result": {
+    "stage": "parse",
+    "compiled": false,
+    "correct": false,
+    "time_ms": null,
+    "speedup": null,
+    "stderr": "no fenced code block defining matmul found in the reply"
+  },
+  "feedback": null,
+  "platform": "armv7",
+  "trial": 1
+}

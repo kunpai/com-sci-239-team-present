@@ -1,0 +1,58 @@
+{
+  "config": {
+    "rounds": 0,
+    "repeats": 1,
+    "trials": 1,
+    "window": 3,
+    "memory_cap_words": 200,
+    "lesson_cap_words": 80,
+    "n": 1024,
+    "reps": 3,
+    "cpus": 4,
+    "mem_limit": "4g",
+    "llm_timeout_s": 600,
+    "compile_timeout_s": 300,
+    "run_timeout_s": 1800,
+    "max_naive_s": 120.0,
+    "model": null
+  },
+  "naive_ms": {
+    "amd64": 2124.317,
+    "armv7": 4149.396
+  },
+  "refine": [
+    {
+      "repeat": 1,
+      "speedups": [
+        206.48493390357697
+      ],
+      "best_speedup": 206.48493390357697,
+      "memory": "Notes for future self (matmul, n\u22481000):\n\n**Attempt 0: 10.3 ms (206x over naive)**\n- B packed into 16-wide column panels.\n- 6x16 register-blocked microkernel using GCC vector extensions (v4 floats, memcpy loads).\n- pthreads with an atomic work queue over 48-row chunks.\n- KC=256 K-blocking keeps A rows and the panel slice in L1/L2.\n- -march=native may widen v4 to AVX/FMA; assembly not checked.\n- Single attempt, no ablations, so per-piece contributions are unknown.\n\n**Weaknesses**\n- A is unpacked, so the kernel does strided scalar loads from 6 rows.\n- Each chunk loops over all panels, giving poor A reuse across panels.\n- Threads are spawned twice per call, which is noticeable overhead at 10 ms.\n\n**Next steps**\n- Pack A into MR-interleaved blocks.\n- Use 8-wide vectors (AVX2) with an 8x8 or 6x16 kernel and explicit FMA. First check the architecture: darwin suggests possibly Apple M-series (NEON) rather than x86.\n- Tune MC/KC/NC for L2/L3 using BLIS-style loop ordering.\n- Merge packing and compute into one parallel region, or use a persistent OpenMP pool.\n- Try -O3 -march=native -ffast-math -funroll-loops.",
+      "note": ""
+    }
+  ],
+  "arms": [
+    {
+      "arm": "B",
+      "repeat": 1,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 2.450968184755476,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 1,
+      "first_try_success": false,
+      "trials_to_success": null,
+      "final_speedup": null,
+      "first_failure_stage": "compile",
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    }
+  ]
+}

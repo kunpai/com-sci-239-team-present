@@ -1,0 +1,11 @@
+{
+  "arm": "C",
+  "repeat": 2,
+  "step": 4,
+  "kind": "memory_update",
+  "memory": [
+    "**Matmul notes (best: Attempt 10, 10.3 ms, 206x)** - **What worked:** Attempt 0's structure (11.8 ms): - 6x16 AVX2 broadcast-FMA kernel - KC=256, MC=120, NC=1024 - Private per-thread packed buffers - Threads split C by contiguous rows and are created per call Attempt 10 kept this but limited threads to physical cores, detected via sibling lists in `/sys`. Hyperthread siblings had been competing for FMA ports and L1/L2. - **What hurt:** - Sharing a large B block across row-split threads, which is L3-bandwidth bound (Attempts 1 and 6, 15\u201317 ms) - Pre-packing the whole matrix (2) - 2D grids with duplicated private packing (4, 5) - Persistent spin-wait pools using all logical CPUs (7) - A 12x32 AVX-512 kernel with KC=256, where the B panel overflows L1 (8) - `always_inline` plus `-funroll-loops` code bloat (9) - Hand-written asm with a temporary-buffer store (6) - **Noise is about \u00b11.5 ms.** Change one variable per attempt. - **Next, each change applied alone on top of Attempt 10:** 1. Reuse buffers instead of calling `aligned_alloc` each time. 2. Try KC=512 to halve the passes over C. 3. Prefetch A/B once per cache line, about 8 k ahead. 4. Try a 14x16 zmm kernel"
+  ],
+  "trial": 1,
+  "lesson": "The build machine isn't x86 (likely ARM/aarch64), so the unconditional x86 intrinsics header failed. The memory notes came from an AVX2 machine, and that assumption was wrong here. Next time, include x86 headers only behind architecture checks, add a NEON path for aarch64, and keep a portable scalar fallback so the file compiles anywhere. Use flags that work on any architecture, such as -O3 -march=native, and don't rely on Linux-only /sys topology files."
+}

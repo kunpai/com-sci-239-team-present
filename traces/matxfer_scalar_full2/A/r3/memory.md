@@ -1,0 +1,6 @@
+- Baseline: packed BLIS-style 6×16 AVX2 kernel + OpenMP gave 10.9 ms (~180 GFLOP/s at n≈1000).
+- Biggest win (→8.1 ms): explicit-intrinsic register-blocked kernel (named accumulators via macros, 12×32 AVX-512 / 6×16 AVX2), full-tile fast path with edge tiles computed into a padded stack tmp. Generic `acc[][]` arrays + memcpy spilled (12.0 ms).
+- Small win (→7.8 ms, maybe noise): one thread per physical core (cgroup quota + SMT detection), static grow-only buffers, dynamic pack scheduling.
+- No gain / regressions: per-task A packing (8.1), per-task B repacking (8.6), in-loop conditional A prefetch + THP madvise (10.8, prefetch likely culprit), unpacked A with 4 KB row stride (8.2), double-buffered per-kc phases (7.9), static 2D grid ownership (8.0), runtime autotuning across candidates (8.6 — warm-up/bad candidates counted).
+- Every structural variant plateaus at 7.8–8.2 ms → limit is likely thread count/frequency or kernel throughput, not scheduling. ISA path and thread count were never confirmed.
+- Next: emit one-time stderr diagnostics (ISA, g_nt, procs, 1-thread GFLOP/s); try all logical CPUs; AVX2 KC=512 or 8×24 tile; keep Attempt 5 as base and change one thing at a time.

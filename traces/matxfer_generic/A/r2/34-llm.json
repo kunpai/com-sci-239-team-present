@@ -1,0 +1,63 @@
+{
+  "arm": "A",
+  "repeat": 2,
+  "step": 34,
+  "kind": "llm",
+  "memory": [],
+  "role": "memory_shorten",
+  "prompt": "Shorten the following notes to at most 200 words, keeping the most useful facts. Reply with the shortened notes only.\n\n**Notes on the matmul task (best so far: Attempt 10, 10.3 ms, 206x)**\n\n- **What worked:** Attempt 0's structure. It uses a 6x16 AVX2 broadcast-FMA kernel, KC=256, MC=120, NC=1024, private per-thread packed buffers, and threads split C by contiguous rows, created per call. Attempt 0 ran at 11.8 ms. Attempt 10 kept that unchanged and cut the thread count to physical cores (sibling-list detection in `/sys`), which brought it to 10.3 ms. Hyperthread siblings were competing for FMA ports and L1/L2.\n- **What hurt:**\n  - Sharing a large B block across row-split threads (Attempts 1 and 6, 15\u201317 ms). This is L3-bandwidth bound.\n  - Pre-packing the whole matrix (Attempt 2).\n  - 2D grids with duplicated private packing (Attempts 4 and 5).\n  - Persistent spin-wait pools that use all logical CPUs (Attempt 7).\n  - A 12x32 AVX-512 kernel with KC=256 (Attempt 8), where the B panel overflows L1.\n  - `always_inline` plus `-funroll-loops` bloat (Attempt 9).\n  - Hand-written asm with a temporary-buffer store (Attempt 6).\n- **Noise is about \u00b11.5 ms.** Change one variable per attempt.\n- **Next, each change applied alone on top of Attempt 10:**\n  1. Reuse buffers instead of calling `aligned_alloc` every time.\n  2. Try KC=512 to halve the passes over C.\n  3. Add A/B prefetch once per cache line, about 8 k ahead.\n  4. Try a 14x16 zmm kernel if AVX-512 is present, keeping NR at 16.\n  5. Compare with and without `-funroll-loops`.\n",
+  "text": "**Matmul notes (best: Attempt 10, 10.3 ms, 206x)**\n\n- **What worked:** Attempt 0's structure (11.8 ms):\n  - 6x16 AVX2 broadcast-FMA kernel\n  - KC=256, MC=120, NC=1024\n  - Private per-thread packed buffers\n  - Threads split C by contiguous rows and are created per call\n\n  Attempt 10 kept this but limited threads to physical cores, detected via sibling lists in `/sys`. Hyperthread siblings had been competing for FMA ports and L1/L2.\n- **What hurt:**\n  - Sharing a large B block across row-split threads, which is L3-bandwidth bound (Attempts 1 and 6, 15\u201317 ms)\n  - Pre-packing the whole matrix (2)\n  - 2D grids with duplicated private packing (4, 5)\n  - Persistent spin-wait pools using all logical CPUs (7)\n  - A 12x32 AVX-512 kernel with KC=256, where the B panel overflows L1 (8)\n  - `always_inline` plus `-funroll-loops` code bloat (9)\n  - Hand-written asm with a temporary-buffer store (6)\n- **Noise is about \u00b11.5 ms.** Change one variable per attempt.\n- **Next, each change applied alone on top of Attempt 10:**\n  1. Reuse buffers instead of calling `aligned_alloc` each time.\n  2. Try KC=512 to halve the passes over C.\n  3. Prefetch A/B once per cache line, about 8 k ahead.\n  4. Try a 14x16 zmm kernel if AVX-512 is present, keeping NR=16.\n  5. Compare with and without `-funroll-loops`.",
+  "session_id": "ab4ae4f0-eede-4870-9e15-eb279f46c96d",
+  "cost_usd": 0.021237599999999995,
+  "duration_s": 5.749,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 1084,
+    "cache_read_input_tokens": 2188,
+    "output_tokens": 606,
+    "output_tokens_details": {
+      "thinking_tokens": 15
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 1084,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 606,
+        "cache_read_input_tokens": 2188,
+        "cache_creation_input_tokens": 1084,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1084
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 606,
+      "cacheReadInputTokens": 2188,
+      "cacheCreationInputTokens": 1084,
+      "webSearchRequests": 0,
+      "costUSD": 0.021237599999999995,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 15,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  }
+}

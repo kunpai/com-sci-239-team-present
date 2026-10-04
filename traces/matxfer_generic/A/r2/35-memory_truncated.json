@@ -1,0 +1,9 @@
+{
+  "arm": "A",
+  "repeat": 2,
+  "step": 35,
+  "kind": "memory_truncated",
+  "memory": [],
+  "words": 212,
+  "cap": 200
+}

@@ -1,0 +1,63 @@
+{
+  "arm": "A",
+  "repeat": 2,
+  "step": 34,
+  "kind": "llm",
+  "memory": [],
+  "role": "memory_shorten",
+  "prompt": "Shorten the following notes to at most 200 words, keeping the most useful facts. Reply with the shortened notes only.\n\nNotes for future self (matmul, n\u22481000, gcc, OpenMP, AVX-512 machine):\n\n- Baseline: a 6\u00d716 ymm BLIS-style kernel with packed A and B ran at 7.1 ms (Attempt 0).\n- Biggest structural win: stop packing A and read A rows directly with stride n. This brought 7.1 to 6.6 ms. Global A pre-pack and per-task A repacking both hurt (8.3 and 9.2 ms).\n- KCMAX: 384 helped slightly over 320 (6.5 ms). 512 was a disaster at 10.3 ms because the B panel overflowed L1. KC=192 with an 8\u00d732 zmm kernel gave no gain.\n- AVX-512 only paid off with a 12\u00d732 zmm kernel: 24 accumulators, A rows unpacked, a zero-padded ebuf for the row edge, and an NV=1 path for column edges. That gave 6.1 ms.\n- Putting the `ir` loop outside and `jp` inside, so A rows stay in L1, gave 5.9 ms, the current best (Attempt 10).\n- No help or harmful: `-mno-avx512f`, the 16\u00d7 manual unroll with prefetches, `-funroll-loops` combined with a big body, and masked edge stores (neutral).\n- Next things to try, one at a time:\n  - KCMAX of about 192\u2013224 with 12\u00d732, trading the B panel fitting in L1 against an extra C pass.\n  - Pack B per kb slice to remove the serial pre-pack barrier.\n  - An 8-column masked edge.\n  - Tuning MC and PPCMAX.\n  - Packing the 12-row A strip contiguously per (task, kb), in case n=1024 aliasing matters.\n",
+  "text": "Notes (matmul, n\u22481000, gcc, OpenMP, AVX-512):\n\n- Baseline (Attempt 0): 6\u00d716 ymm BLIS kernel, packed A and B, 7.1 ms.\n- Unpacked A (read rows with stride n): 6.6 ms. Global A pre-pack (8.3) and per-task A repack (9.2) both hurt.\n- KCMAX 384 slightly beat 320 (6.5 ms). 512 gave 10.3 ms because the B panel overflowed L1. KC=192 with 8\u00d732 zmm gave no gain.\n- AVX-512 only helped with a 12\u00d732 zmm kernel: 24 accumulators, unpacked A, zero-padded ebuf for the row edge, NV=1 path for column edges. 6.1 ms.\n- Best so far (Attempt 10), 5.9 ms: `ir` loop outer, `jp` inner, so A rows stay in L1.\n- Neutral or harmful: `-mno-avx512f`, 16\u00d7 manual unroll with prefetches, `-funroll-loops` with a big body, masked edge stores (neutral).\n- Try next, one at a time:\n  - KCMAX ~192\u2013224 with 12\u00d732 (B panel fits L1 vs. extra C pass).\n  - Pack B per kb slice to drop the serial pre-pack barrier.\n  - 8-column masked edge.\n  - Tune MC and PPCMAX.\n  - Pack the 12-row A strip contiguously per (task, kb), in case n=1024 aliasing matters.",
+  "session_id": "d462003a-dd0a-40aa-91b9-3512ba4216d3",
+  "cost_usd": 0.0191894,
+  "duration_s": 4.892,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 1028,
+    "cache_read_input_tokens": 2187,
+    "output_tokens": 526,
+    "output_tokens_details": {
+      "thinking_tokens": 0
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 1028,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 526,
+        "cache_read_input_tokens": 2187,
+        "cache_creation_input_tokens": 1028,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1028
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 526,
+      "cacheReadInputTokens": 2187,
+      "cacheCreationInputTokens": 1028,
+      "webSearchRequests": 0,
+      "costUSD": 0.0191894,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 0,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  }
+}

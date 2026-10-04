@@ -1,0 +1,11 @@
+{
+  "arm": "C",
+  "repeat": 2,
+  "step": 4,
+  "kind": "memory_update",
+  "memory": [
+    "- **Baseline (Attempt 0, 11.0 ms):** BLIS-style packing + 6\u00d716 AVX2 kernel with OpenMP; 191x over naive.\n- **Biggest gain (\u21928.4 ms):** 12\u00d732 AVX-512 micro-kernel (on `__AVX512F__`), with all of A and B packed once into full-k panels instead of repacking A per task.\n- **Best (Attempt 4, 7.9 ms):**\n  - Static, reused buffers.\n  - KC\u2248256 so the 12 KB A slice + 32 KB B micro-panel fit in L1.\n  - Per task: p outer, q inner over a 256-column B block.\n  - mpt = clamp(mp\u00b7ntn/(4\u00b7nth), 1, 8).\n  - Masked AVX-512 edge stores.\n- **Regressions:**\n  - Unpacked A (12 strided streams, 4K aliasing): 8.7 ms.\n  - KC=384 overflows L1.\n  - Cost-model thin tiles/N-splits (repeated A packing, low B reuse): 8.1\u20138.7 ms.\n  - Forced-inline kernel with manual \u00d74 unroll spills: 13.7 ms.\n- **Neutral (8.0\u20138.3 ms):** lazy per-panel packing with atomic flags; in-register 16\u00d716 transpose for A packing; C prefetch.\n- **Next (one change at a time on Attempt 4):**\n  - `proc_bind(spread)` or physical-core thread count.\n  - Per-(panel, pc) B flags with thread-owned A rows.\n  - Check asm for `{1to16}` broadcasts and spills.\n  - 14\u00d732 kernel or smaller NCW."
+  ],
+  "trial": 1,
+  "lesson": "The attempt failed to compile, so no performance data was gained. The exact error is unknown. Likely culprits are environment-sensitive pieces: `aligned_alloc` (prefer `posix_memalign`), the multi-line macro-generated kernels, and the `#if` ISA branches when `-march=native` resolves differently in the container. Next time, start from the proven Attempt 4 source and change only one thing. Use portable allocation and avoid fragile token-pasting macros. Check that the code compiles cleanly with `-Wall` for both the AVX-512 and AVX2 paths."
+}

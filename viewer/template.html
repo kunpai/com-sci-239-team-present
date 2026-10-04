@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memory Transfer Notebook</title>
+<style>
+:root {
+  --bg: #f4efe4; --panel: #fffcf5; --panel2: #f9f4e8; --ink: #1f1c15; --muted: #6a6354;
+  --line: #d9d0bc; --rule: #e8dfca; --shadow: rgba(60, 45, 10, .12);
+  --A: #b4690e; --B: #17707a; --C: #34459a;
+  --ok: #2c7a4b; --ok-soft: #dcefe2; --bad: #c4311d; --bad-soft: #f6d9d3; --warn: #8f5f00; --warn-soft: #f6e8c3;
+  --code-bg: #fbf8ef; --add: #d9efdc; --del: #f6d9d3;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: "Avenir Next", "Gill Sans", "Trebuchet MS", Candara, sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #15130e; --panel: #1d1a13; --panel2: #231f17; --ink: #ece6d6; --muted: #a39b88;
+  --line: #3a3529; --rule: #2d2920; --shadow: rgba(0, 0, 0, .5);
+  --A: #e6a24b; --B: #4cc7c0; --C: #8fa3f5;
+  --ok: #6cc785; --ok-soft: #1d3a29; --bad: #ff8070; --bad-soft: #4a211b; --warn: #e6b94a; --warn-soft: #3d3112;
+  --code-bg: #191610; --add: #1d3a29; --del: #4a211b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg) var(--grain); color: var(--ink); font: 15px/1.5 var(--sans); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--C); outline-offset: 2px; }
+pre { margin: 0; font: 12.5px/1.55 var(--mono); white-space: pre-wrap; word-break: break-word; }
+
+/* top bar: ledger rule underneath */
+#top { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 22px;
+  padding: 10px 28px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+  border-bottom: 3px double var(--line); }
+.brand { font: italic 600 22px/1 var(--serif); letter-spacing: .01em; }
+.brand small { display: block; margin-top: 3px; font: 600 10px/1 var(--sans); letter-spacing: .22em; text-transform: uppercase; color: var(--muted); font-style: normal; }
+#runs { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.run-pill { padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font: 12px var(--mono); }
+.run-pill small { color: var(--muted); margin-left: 6px; }
+.run-pill[aria-current="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.run-pill[aria-current="true"] small { color: inherit; opacity: .7; }
+.ctl { display: flex; gap: 14px; align-items: center; font-size: 12.5px; color: var(--muted); }
+.ctl label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.btn { padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12.5px; }
+.btn:hover { border-color: var(--ink); }
+
+main { max-width: 1480px; margin: 0 auto; padding: 26px 28px 80px; }
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
+.eyebrow { font: 700 10.5px/1 var(--sans); letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.rise { animation: rise .5s cubic-bezier(.2, .7, .2, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .rise { animation: none; } html { scroll-behavior: auto; } }
+
+/* run header */
+.run-head { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: end; justify-content: space-between; margin-bottom: 18px; }
+.run-head h1 { font-size: 34px; letter-spacing: -.01em; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { padding: 2px 9px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel2); font: 12px var(--mono); color: var(--muted); }
+.chip.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.chip.bad { color: var(--bad); background: var(--bad-soft); border-color: transparent; }
+.chip.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.chip.hatch { background-image: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--bad) 28%, transparent) 5px 6px); }
+
+/* summary table */
+.sheet { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 1px 0 var(--line), 3px 3px 0 var(--shadow); margin: 6px 0 28px; }
+.sheet th, .sheet td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--rule); font-size: 14px; }
+.sheet th { font: 700 10.5px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); background: var(--panel2); }
+.sheet td.num { font-family: var(--mono); }
+.stamp { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font: 700 13px var(--serif); color: #fff; }
+.stamp.A { background: var(--A); } .stamp.B { background: var(--B); } .stamp.C { background: var(--C); }
+:root[data-theme="dark"] .stamp { color: #15130e; }
+
+/* chain rows (overview) */
+.chain { margin: 0 0 22px; padding: 14px 16px 16px; background: var(--panel); border: 1px solid var(--line); box-shadow: 3px 3px 0 var(--shadow); }
+.chain-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.chain-top h3 { font-size: 20px; }
+.banner { padding: 8px 12px; margin: 0 0 10px; border-left: 4px solid var(--bad); background: var(--bad-soft); font-size: 13.5px; }
+.banner.warn { border-color: var(--warn); background: var(--warn-soft); }
+.cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tile { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-top: 4px solid var(--arm); background: var(--panel2); min-height: 118px; transition: transform .15s, box-shadow .15s; }
+.tile:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--shadow); }
+.tile.A { --arm: var(--A); } .tile.B { --arm: var(--B); } .tile.C { --arm: var(--C); }
+.tile.empty { opacity: .55; border-style: dashed; cursor: default; }
+.tile .t-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.tile .t-title { font: 600 15px var(--serif); }
+.tile .t-sub { font-size: 12.5px; color: var(--muted); }
+.big { font: 600 26px/1.1 var(--serif); }
+.spark { display: block; width: 100%; height: auto; }
+.card { scroll-margin-top: 96px; }
+.banner button { margin-left: 10px; }
+
+/* chain view */
+.crumbs { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+.tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.tabs button { padding: 5px 14px; border: 0; background: var(--panel); font-size: 13px; }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.col-head { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 3px solid var(--arm); }
+.col.A { --arm: var(--A); } .col.B { --arm: var(--B); } .col.C { --arm: var(--C); }
+.col-head h2 { font-size: 20px; }
+.col-head .sub { font-size: 12.5px; color: var(--muted); }
+.rail { position: relative; padding-left: 16px; }
+.rail::before { content: ""; position: absolute; left: 4px; top: 6px; bottom: 6px; width: 2px; background: repeating-linear-gradient(var(--arm) 0 6px, transparent 6px 10px); opacity: .55; }
+.card { position: relative; margin: 0 0 10px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--arm); box-shadow: 2px 2px 0 var(--shadow); }
+.card::before { content: ""; position: absolute; left: -22px; top: 16px; width: 10px; height: 10px; border-radius: 50%; background: var(--arm); border: 2px solid var(--bg); }
+.card.fail { border-left-color: var(--bad); }
+.card.fail::before { background: var(--bad); }
+.card.fail .card-head { background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--bad) 14%, transparent) 7px 8px); }
+.card.flash { animation: flash 1.6s ease-out; }
+@keyframes flash { 0%, 40% { box-shadow: 0 0 0 4px var(--C); } 100% { box-shadow: 2px 2px 0 var(--shadow); } }
+.card-head { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; width: 100%; padding: 9px 12px; border: 0; background: none; text-align: left; }
+.card-head .ttl { font: 600 15px var(--serif); }
+.card-head .ttl small { font: 12px var(--sans); color: var(--muted); margin-left: 6px; }
+.card-head .meta { display: flex; gap: 8px; align-items: center; font: 12.5px var(--mono); grid-column: 1; flex-wrap: wrap; }
+.card-head .chev { grid-row: 1; grid-column: 2; color: var(--muted); transition: transform .15s; }
+.card[data-open="true"] .chev { transform: rotate(90deg); }
+.stage { padding: 1px 8px; border-radius: 999px; font: 600 11.5px var(--sans); background: var(--ok-soft); color: var(--ok); }
+.stage.bad { background: var(--bad-soft); color: var(--bad); }
+.flagline { color: var(--muted); font: 11.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; grid-column: 1 / -1; }
+.card-body { padding: 4px 12px 12px; border-top: 1px dashed var(--line); }
+.card-body > * + * { margin-top: 10px; }
+.card-body h4, .block h4 { margin: 12px 0 4px; font: 700 10.5px var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.row-actions { display: flex; gap: 8px; }
+
+/* code + diff */
+.codeblock { border: 1px solid var(--line); background: var(--code-bg); }
+.codebar { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--line); font: 11.5px var(--mono); color: var(--muted); align-items: center; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { padding: 2px 9px; border: 0; background: var(--panel); font-size: 12px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.code { max-height: 420px; overflow: auto; }
+.ln { display: grid; grid-template-columns: 38px 38px 14px 1fr; font: 12px/1.5 var(--mono); }
+.ln.single { grid-template-columns: 38px 1fr; }
+.ln .no { text-align: right; padding-right: 8px; color: var(--muted); opacity: .7; user-select: none; }
+.ln .tx { white-space: pre-wrap; word-break: break-all; padding-right: 8px; }
+.ln.add { background: var(--add); } .ln.del { background: var(--del); }
+.ln.gap { color: var(--muted); font-style: italic; background: var(--panel2); padding-left: 8px; display: block; }
+.stderr { padding: 8px 10px; background: var(--bad-soft); border-left: 3px solid var(--bad); max-height: 220px; overflow: auto; }
+.facts { display: flex; gap: 18px; flex-wrap: wrap; font: 12.5px var(--mono); }
+.facts b { font-family: var(--sans); color: var(--muted); font-weight: 600; margin-right: 5px; }
+.note { padding: 8px 10px; background: var(--panel2); border-left: 3px solid var(--line); }
+.note pre { font: 13px/1.55 var(--sans); }
+
+/* memory: typed index cards */
+.index-card { position: relative; padding: 14px 14px 12px 18px; margin: 0 0 14px; background: var(--panel);
+  background-image: linear-gradient(transparent 22px, var(--rule) 23px); background-size: 100% 23px; border: 1px solid var(--line);
+  border-top: 3px solid var(--bad); box-shadow: 3px 3px 0 var(--shadow); }
+.index-card::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; width: 1px; background: color-mix(in srgb, var(--bad) 40%, transparent); }
+.index-card h4 { margin: 0 0 6px 6px; font: 700 10.5px var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); background: var(--panel); display: inline-block; padding: 0 4px; }
+.index-card pre { margin-left: 6px; line-height: 23px; font-size: 12.5px; }
+.index-card.none { border-top-color: var(--line); background-image: none; color: var(--muted); font-style: italic; }
+.index-card.lesson { border-top-color: var(--warn); }
+.mem-meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+
+/* drawer */
+#scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); z-index: 30; }
+#drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(780px, 100vw); z-index: 40; display: flex; flex-direction: column;
+  background: var(--panel); border-left: 3px double var(--line); box-shadow: -8px 0 0 var(--shadow); animation: slide .22s ease-out; }
+@keyframes slide { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+#drawer[hidden], #scrim[hidden] { display: none; }
+#drawer header { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+#drawer h2 { font-size: 19px; }
+#drawer-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel2); }
+#drawer-tabs button { padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); font-size: 12.5px; }
+#drawer-tabs button[aria-selected="true"] { background: var(--ink); color: var(--bg); }
+#drawer-bar { display: flex; justify-content: space-between; padding: 6px 16px; font: 12px var(--mono); color: var(--muted); }
+#drawer-body { flex: 1; overflow: auto; padding: 4px 16px 24px; }
+#drawer-body pre { font-size: 12.5px; }
+
+footer { margin-top: 40px; padding-top: 12px; border-top: 3px double var(--line); font-size: 12px; color: var(--muted); display: flex; gap: 18px; flex-wrap: wrap; }
+kbd { font: 11px var(--mono); padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--panel); }
+.empty-note { padding: 18px; border: 1px dashed var(--line); color: var(--muted); font-style: italic; }
+.error-panel { padding: 18px; border: 2px solid var(--bad); background: var(--bad-soft); }
+
+@media (max-width: 1040px) { .cols { grid-template-columns: 1fr; } .cards3 { grid-template-columns: 1fr; } main { padding: 18px 16px 60px; } #top { padding: 10px 16px; } }
+</style>
+</head>
+<body>
+<header id="top">
+  <div class="brand">Memory Transfer<small>trace notebook</small></div>
+  <nav id="runs" aria-label="Runs"></nav>
+  <div class="ctl">
+    <label><input type="checkbox" id="opt-dev"> dev runs</label>
+    <label><input type="checkbox" id="opt-fail"> failures only</label>
+    <button class="btn" id="opt-theme" title="Toggle theme (t)">theme</button>
+  </div>
+</header>
+<main id="app"></main>
+<div id="scrim" hidden></div>
+<aside id="drawer" hidden aria-label="Inspector">
+  <header><h2 id="drawer-title"></h2><button class="btn" id="drawer-close">Close (Esc)</button></header>
+  <div id="drawer-tabs" role="tablist"></div>
+  <div id="drawer-bar"><span id="drawer-info"></span><button class="btn" id="drawer-copy">Copy</button></div>
+  <div id="drawer-body"></div>
+</aside>
+<script id="data" type="application/json">/*__DATA__*/null</script>
+<script>
+(() => {
+'use strict';
+
+/* ---------- data + tiny DOM helpers (all trace text goes through text nodes, never innerHTML) ---------- */
+const DATA = JSON.parse(document.getElementById('data').textContent) || { runs: [] };
+const RUNS = DATA.runs || [];
+const ARMS = {
+  A: { name: 'Self-Refine', where: 'amd64', blurb: 'refines for 10 rounds, then writes memory.md' },
+  B: { name: 'Reflexion trials', where: 'arm/v7', blurb: 'no memory' },
+  C: { name: 'Reflexion trials', where: 'arm/v7', blurb: "with A's memory" },
+};
+const STAGE = { ok: 'ok', compile: 'compile error', incorrect: 'wrong result', run: 'crashed', timeout: 'timeout',
+  flags: 'flags rejected', parse: 'unparseable reply', unknown: 'unknown' };
+const $ = (sel, root = document) => root.querySelector(sel);
+
+function h(tag, props, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? '' : String(v));
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+function svg(tag, attrs, ...kids) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, String(v));
+  for (const kid of kids) if (kid) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* storage may be blocked */ } },
+};
+const isOk = (res) => res && res.stage === 'ok';
+const words = (t) => (t || '').trim().split(/\s+/).filter(Boolean).length;
+const fmtX = (v) => (v == null ? '–' : (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + '×');
+const fmtMs = (v) => (v == null ? '–' : v >= 100 ? v.toFixed(0) + ' ms' : v.toFixed(2) + ' ms');
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+const stagePill = (res) => h('span', { class: 'stage' + (isOk(res) ? '' : ' bad') }, STAGE[res.stage] || res.stage);
+
+/* ---------- state + routing ---------- */
+const query = new URLSearchParams(location.search);  // ?theme=light|dark  ?fail=1  ?dev=1 (handy for slide links)
+const state = { dev: query.get('dev') === '1' || store.get('mtn-dev') === '1', fail: query.get('fail') === '1' };
+function parseHash() {
+  let p = [];
+  try { p = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('/').filter(Boolean); } catch (e) { p = []; }
+  return {
+    run: p[0] || null,
+    repeat: p[1] && /^\d+$/.test(p[1]) ? Number(p[1]) : null,
+    view: p[2] === 'memory' ? 'memory' : 'timeline',
+    arm: ['A', 'B', 'C'].includes(p[3]) ? p[3] : null,
+    idx: p[4] != null && /^\d+$/.test(p[4]) ? Number(p[4]) : null,
+  };
+}
+function hashFor(r) {
+  const parts = [r.run];
+  if (r.repeat != null) {
+    parts.push(r.repeat, r.view || 'timeline');
+    if (r.arm) { parts.push(r.arm); if (r.idx != null) parts.push(r.idx); }
+  }
+  return '#/' + parts.map(encodeURIComponent).join('/');
+}
+const go = (r) => { location.hash = hashFor(r); };
+function resolve() {
+  const r = parseHash();
+  const visible = RUNS.filter((x) => state.dev || !x.dev);
+  const found = RUNS.find((x) => x.id === r.run);
+  const run = found || visible[0] || RUNS[0] || null;
+  const missing = r.run && !found ? r.run : null;  // a stale link must not show another run's chain
+  const rep = found && r.repeat != null ? found.repeats.find((x) => x.repeat === r.repeat) || null : null;
+  return { run, rep, view: r.view, arm: missing ? null : r.arm, idx: missing ? null : r.idx, missing };
+}
+
+/* ---------- derived numbers ---------- */
+const bestSpeedup = (arm) => {
+  const xs = (arm ? arm.attempts : []).filter((a) => isOk(a.result) && a.result.speedup != null).map((a) => a.result.speedup);
+  return xs.length ? Math.max(...xs) : null;
+};
+function trialInfo(arm) {
+  if (!arm || !arm.trials.length) return null;
+  const first = arm.trials[0];
+  const win = arm.trials.findIndex((t) => isOk(t.result));
+  return { first, firstOk: isOk(first.result), winTrial: win >= 0 ? win + 1 : null, final: win >= 0 ? arm.trials[win].result.speedup : null, n: arm.trials.length };
+}
+function armStats(run, key) {
+  // aborted repeats are excluded, exactly as results.md excludes them
+  const infos = run.repeats.filter((r) => !r.errors.length).map((r) => trialInfo(r[key])).filter(Boolean);
+  const wins = infos.filter((i) => i.winTrial);
+  return {
+    n: infos.length, first: infos.filter((i) => i.firstOk).length, eventually: wins.length,
+    meanTrials: mean(wins.map((i) => i.winTrial)), meanSpeedup: mean(wins.map((i) => i.final).filter((v) => v != null)),
+  };
+}
+function variantLabel(run) {
+  const t = run.task_text || '';
+  if (!t) return 'prompt unknown';
+  if (t.includes('inside a Linux container')) return 'original prompt + container sentence';
+  if (t.includes('as fast as you can')) return 'generic prompt';
+  return 'original prompt (pre-container sentence)';
+}
+
+/* ---------- code, diff ---------- */
+function lineDiff(a, b) {
+  const x = a.split('\n'), y = b.split('\n');
+  let s = 0;
+  while (s < x.length && s < y.length && x[s] === y[s]) s++;
+  let ex = x.length, ey = y.length;
+  while (ex > s && ey > s && x[ex - 1] === y[ey - 1]) { ex--; ey--; }
+  const mx = x.slice(s, ex), my = y.slice(s, ey);
+  if (mx.length * my.length > 2.5e6) return null;
+  const n = mx.length, m = my.length;
+  const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    dp[i][j] = mx[i] === my[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = [];
+  for (let i = 0; i < s; i++) out.push({ t: ' ', text: x[i], a: i + 1, b: i + 1 });
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (mx[i] === my[j]) { out.push({ t: ' ', text: mx[i], a: s + i + 1, b: s + j + 1 }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: '-', text: mx[i], a: s + i + 1 }); i++; }
+    else { out.push({ t: '+', text: my[j], b: s + j + 1 }); j++; }
+  }
+  while (i < n) { out.push({ t: '-', text: mx[i], a: s + i + 1 }); i++; }
+  while (j < m) { out.push({ t: '+', text: my[j], b: s + j + 1 }); j++; }
+  for (let k = ex; k < x.length; k++) out.push({ t: ' ', text: x[k], a: k + 1, b: ey + (k - ex) + 1 });
+  return out;
+}
+function plainCode(code) {
+  const box = h('div', { class: 'code' });
+  (code || '').replace(/\n$/, '').split('\n').forEach((line, i) => box.append(h('div', { class: 'ln single' }, h('span', { class: 'no' }, i + 1), h('span', { class: 'tx' }, line || ' '))));
+  return box;
+}
+function diffView(prev, cur) {
+  const d = lineDiff(prev, cur);
+  if (!d) return h('div', { class: 'note' }, 'Too large to diff.');
+  const keep = new Set();
+  d.forEach((row, i) => { if (row.t !== ' ') for (let k = Math.max(0, i - 3); k <= Math.min(d.length - 1, i + 3); k++) keep.add(k); });
+  const box = h('div', { class: 'code' });
+  let gap = 0, added = 0, removed = 0;
+  const flush = () => { if (gap) box.append(h('div', { class: 'ln gap' }, `… ${gap} unchanged line${gap > 1 ? 's' : ''} …`)); gap = 0; };
+  d.forEach((row, i) => {
+    if (row.t === '+') added++; if (row.t === '-') removed++;
+    if (!keep.has(i)) { gap++; return; }
+    flush();
+    box.append(h('div', { class: 'ln' + (row.t === '+' ? ' add' : row.t === '-' ? ' del' : '') },
+      h('span', { class: 'no' }, row.a ?? ''), h('span', { class: 'no' }, row.b ?? ''), h('span', { class: 'no' }, row.t === ' ' ? '' : row.t),
+      h('span', { class: 'tx' }, row.text || ' ')));
+  });
+  flush();
+  if (!added && !removed) return h('div', { class: 'note' }, 'Identical to the previous attempt.');
+  box.prepend(h('div', { class: 'ln gap' }, `+${added} −${removed} lines vs. previous`));
+  return box;
+}
+function codeBlock(code, prevCode, flags) {
+  const view = h('div');
+  const bar = h('div', { class: 'codebar' }, h('span', null, 'FLAGS: ' + (flags || []).join(' ')));
+  const buttons = [];
+  const show = (mode) => {
+    view.replaceChildren(mode === 'diff' ? diffView(prevCode, code) : plainCode(code));
+    buttons.forEach(([m, b]) => b.setAttribute('aria-pressed', String(m === mode)));
+  };
+  if (prevCode != null && prevCode !== '') {
+    const seg = h('span', { class: 'seg' });
+    for (const [m, label] of [['code', 'Code'], ['diff', 'Diff vs previous']]) {
+      const b = h('button', { type: 'button', onclick: () => show(m) }, label);
+      buttons.push([m, b]); seg.append(b);
+    }
+    bar.append(seg);
+  }
+  show('code');
+  return h('div', { class: 'codeblock' }, bar, view);
+}
+function resultBlock(res) {
+  return h('div', { class: 'block' },
+    h('h4', null, 'Measured result'),
+    h('div', { class: 'facts' },
+      h('span', null, h('b', null, 'stage'), STAGE[res.stage] || res.stage),
+      h('span', null, h('b', null, 'time'), fmtMs(res.time_ms)),
+      h('span', null, h('b', null, 'speedup'), fmtX(res.speedup))),
+    res.stderr ? h('pre', { class: 'stderr' }, res.stderr) : null);
+}
+const noteBlock = (title, text) => h('div', { class: 'block' }, h('h4', null, title), h('div', { class: 'note' }, h('pre', null, text)));
+
+/* ---------- step cards (body is built lazily on first open) ---------- */
+function card({ key, arm, title, sub, res, flags, body, idx }) {
+  const bad = !isOk(res);
+  const art = h('article', { class: 'card rise' + (bad ? ' fail' : ''), 'data-key': key, 'data-open': 'false', style: `--i:${idx % 14}` });
+  const head = h('button', { class: 'card-head', type: 'button', 'aria-expanded': 'false' },
+    h('span', { class: 'ttl' }, title, sub ? h('small', null, sub) : null),
+    h('span', { class: 'chev' }, '▸'),
+    h('span', { class: 'meta' }, stagePill(res), res.speedup != null ? h('span', null, fmtX(res.speedup)) : null, res.time_ms != null ? h('span', null, fmtMs(res.time_ms)) : null),
+    flags && flags.length ? h('span', { class: 'flagline', title: flags.join(' ') }, flags.join(' ')) : null);
+  let bodyEl = null;
+  const toggle = (force) => {
+    const open = force != null ? force : art.getAttribute('data-open') !== 'true';
+    art.setAttribute('data-open', String(open));
+    head.setAttribute('aria-expanded', String(open));
+    if (open && !bodyEl) { bodyEl = body(); art.append(bodyEl); }
+    if (bodyEl) bodyEl.hidden = !open;
+  };
+  head.addEventListener('click', () => toggle());
+  art.toggleOpen = toggle;
+  art.append(head);
+  return art;
+}
+const inspectBtn = (label, fn) => h('button', { class: 'btn', type: 'button', onclick: fn }, label);
+
+function attemptCard(run, rep, a, prev, i) {
+  return card({
+    key: `A-${a.round}`, arm: 'A', idx: i, title: `Attempt ${a.round}`, sub: a.round === 0 ? 'first draft' : 'refined', res: a.result, flags: a.flags,
+    body: () => h('div', { class: 'card-body' },
+      codeBlock(a.code, prev ? prev.code : null, a.flags),
+      resultBlock(a.result),
+      a.critique ? noteBlock('Critique written after this attempt', a.critique) : null,
+      h('div', { class: 'row-actions' }, inspectBtn('Inspect prompts & replies', () => openInspector(`Attempt ${a.round} · ${run.id} · chain ${rep.repeat}`, [
+        { label: 'Generation prompt', text: a.gen_prompt }, { label: 'Generation reply', text: a.gen_text }, { label: 'Code', text: a.code },
+        { label: 'Result', obj: a.result }, { label: 'Critique prompt', text: a.critique_prompt }, { label: 'Critique reply', text: a.critique },
+        { label: 'JSON', obj: a }])))),
+  });
+}
+function trialCard(run, rep, key, t, prev, i) {
+  const seenLessons = [];
+  return card({
+    key: `${key}-${t.trial - 1}`, arm: key, idx: i, title: `Trial ${t.trial}`, sub: t.trial === 1 ? 'first try' : 'after a lesson', res: t.result, flags: t.flags,
+    body: () => h('div', { class: 'card-body' },
+      codeBlock(t.code, prev ? prev.code : null, t.flags),
+      resultBlock(t.result),
+      memoryInEffect(t, rep[key], seenLessons),
+      t.lesson ? noteBlock('Lesson written after this failure (Reflexion self-reflection)', t.lesson) : null,
+      h('div', { class: 'row-actions' }, inspectBtn('Inspect prompts & replies', () => openInspector(`${key} trial ${t.trial} · ${run.id} · chain ${rep.repeat}`, [
+        { label: 'Prompt', text: t.prompt }, { label: 'Reply', text: t.text }, { label: 'Code', text: t.code }, { label: 'Result', obj: t.result },
+        { label: 'Lesson prompt', text: t.lesson_prompt }, { label: 'Lesson', text: t.lesson }, { label: 'JSON', obj: t }])))),
+  });
+}
+function memoryInEffect(t, arm, _unused) {
+  const lessons = arm.trials.map((x) => x.lesson).filter(Boolean);
+  const box = h('div', { class: 'block' }, h('h4', null, `Memory in effect for this trial (${t.memory.length} entr${t.memory.length === 1 ? 'y' : 'ies'})`));
+  if (!t.memory.length) box.append(h('div', { class: 'index-card none' }, 'none — the prompt had no memory block'));
+  t.memory.forEach((m, i) => {
+    const li = lessons.indexOf(m);
+    const origin = li >= 0 ? `lesson from trial ${li + 1}` : 'carried in from arm A';
+    box.append(h('div', { class: 'index-card' + (li >= 0 ? ' lesson' : '') }, h('h4', null, `entry ${i + 1} · ${origin}`), h('pre', null, m)));
+  });
+  return box;
+}
+
+/* ---------- spark ---------- */
+function spark(attempts, w, hgt, pick) {
+  const ys = attempts.filter((a) => isOk(a.result) && a.result.speedup != null).map((a) => a.result.speedup);
+  const max = Math.max(1, ...ys) * 1.1;
+  const padX = 8, padT = 6, padB = 10;
+  const X = (i) => padX + (attempts.length <= 1 ? (w - 2 * padX) / 2 : (i * (w - 2 * padX)) / (attempts.length - 1));
+  const Y = (v) => padT + (hgt - padT - padB) * (1 - v / max);
+  const root = svg('svg', { viewBox: `0 0 ${w} ${hgt}`, width: w, height: hgt, class: 'spark', role: 'img', 'aria-label': 'speedup per attempt' });
+  for (const f of [0, 0.5, 1]) root.append(svg('line', { x1: 0, x2: w, y1: Y(max * f / 1.1), y2: Y(max * f / 1.1), stroke: 'var(--rule)', 'stroke-width': 1 }));
+  let d = '';
+  attempts.forEach((a, i) => { if (isOk(a.result) && a.result.speedup != null) d += (d ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(a.result.speedup).toFixed(1); });
+  if (d) root.append(svg('path', { d, fill: 'none', stroke: 'var(--A)', 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+  attempts.forEach((a, i) => {
+    const okp = isOk(a.result) && a.result.speedup != null;
+    const g = svg('g', { style: pick ? 'cursor:pointer' : '' },
+      okp ? svg('circle', { cx: X(i), cy: Y(a.result.speedup), r: 3.6, fill: 'var(--panel)', stroke: 'var(--A)', 'stroke-width': 2 })
+          : svg('path', { d: `M${X(i) - 3.5} ${hgt - padB - 3.5}l7 7m0 -7l-7 7`, stroke: 'var(--bad)', 'stroke-width': 2 }),
+      svg('title', null, `Attempt ${a.round}: ${okp ? fmtX(a.result.speedup) : STAGE[a.result.stage] || a.result.stage}`));
+    if (pick) g.addEventListener('click', () => pick(i));
+    root.append(g);
+  });
+  return root;
+}
+
+function errorBanner(e) {
+  const long = e.error.length > 240;
+  return h('div', { class: 'banner' },
+    h('b', null, e.kind === 'llm_error' ? 'Aborted — Claude call failed: ' : 'Aborted — infrastructure error: '),
+    long ? e.error.slice(0, 240) + '…' : e.error,
+    long ? h('button', { class: 'btn', type: 'button', onclick: () => openInspector('Full error', [{ label: 'Error', text: e.error }]) }, 'full error') : null);
+}
+
+/* ---------- overview ---------- */
+function runHeader(run) {
+  const m = run.meta || {}, cfg = m.config || {}, naive = m.naive_ms || {};
+  const chips = [
+    ['n=' + (cfg.n ?? '?'), ''], [`${cfg.rounds ?? '?'} rounds`, ''], [`${run.repeats.length} chain${run.repeats.length === 1 ? '' : 's'}`, ''],
+    [`≤${cfg.trials ?? '?'} trials`, ''], [`${run.llm_calls} Claude calls`, ''], [`$${run.cost_usd.toFixed(2)}`, ''],
+    naive.amd64 ? [`naive amd64 ${naive.amd64.toFixed(0)} ms`, ''] : null, naive.armv7 ? [`naive arm/v7 ${naive.armv7.toFixed(0)} ms`, ''] : null,
+    [variantLabel(run), 'warn'], run.task_sha256 ? ['task ' + run.task_sha256.slice(0, 8), ''] : null,
+  ].filter(Boolean);
+  if (run.platform_inferred) chips.push(['older harness (no platform field: quota-only CPU limit, no odd-size check)', 'warn']);
+  const aborted = run.repeats.filter((r) => r.errors.length).length;
+  if (aborted) chips.push([`${aborted} aborted repeat${aborted > 1 ? 's' : ''}`, 'bad hatch']);
+  return h('div', { class: 'run-head rise' },
+    h('div', null, h('div', { class: 'eyebrow' }, run.dev ? 'development run' : 'experiment run'), h('h1', null, run.id),
+      h('div', { class: 'chips' }, chips.map(([t, c]) => h('span', { class: 'chip ' + c }, t)))),
+    run.task_text ? h('button', { class: 'btn', type: 'button', onclick: () => openInspector('Task statement · ' + run.id, [{ label: 'Task text', text: run.task_text }, { label: 'Run meta', obj: run.meta }]) }, 'Show task statement') : null);
+}
+function summaryTable(run) {
+  const a = run.repeats.map((r) => ({ best: bestSpeedup(r.A), aborted: r.errors.length > 0, n: r.repeat })).filter((x) => x.best != null);
+  const rowFor = (key) => {
+    const s = armStats(run, key);
+    return h('tr', null,
+      h('td', null, h('span', { class: 'stamp ' + key }, key), ' ', ARMS[key].name + ' · ' + ARMS[key].where + ' · ' + ARMS[key].blurb),
+      h('td', { class: 'num' }, s.n ? `${s.first}/${s.n}` : '–'), h('td', { class: 'num' }, s.n ? `${s.eventually}/${s.n}` : '–'),
+      h('td', { class: 'num' }, s.meanTrials != null ? s.meanTrials.toFixed(2) : '–'), h('td', { class: 'num' }, fmtX(s.meanSpeedup)));
+  };
+  return h('table', { class: 'sheet rise', style: '--i:1' },
+    h('thead', null, h('tr', null, ['Arm', 'First-try success', 'Eventually succeeded', 'Mean trials to success', 'Mean final speedup'].map((t) => h('th', null, t)))),
+    h('tbody', null,
+      h('tr', null, h('td', null, h('span', { class: 'stamp A' }, 'A'), ' Self-Refine · amd64 · best speedup per chain'),
+        h('td', { class: 'num', colspan: 4 }, a.length ? a.map((x) => h('span', { class: x.aborted ? 'chip warn' : null, style: 'margin-right:14px' },
+          x.aborted ? `${fmtX(x.best)} (chain ${x.n}, aborted)` : fmtX(x.best))) : '–')),
+      rowFor('B'), rowFor('C')));
+}
+function tileFor(run, rep, key) {
+  const arm = rep[key];
+  const base = { class: 'tile ' + key + (arm ? '' : ' empty') };
+  const head = h('div', { class: 't-head' }, h('span', { class: 'stamp ' + key }, key), h('div', null, h('div', { class: 't-title' }, ARMS[key].name), h('div', { class: 't-sub' }, ARMS[key].where + ' · ' + ARMS[key].blurb)));
+  if (!arm) return h('div', base, head, h('div', { class: 't-sub' }, rep.errors.length ? 'aborted before this arm' : key === 'C' && rep.A && !rep.A.memory_md ? 'skipped — no correct candidate on amd64, so no memory' : 'no data'));
+  const go2 = () => go({ run: run.id, repeat: rep.repeat, view: 'timeline', arm: key, idx: 0 });
+  if (key === 'A') {
+    const best = bestSpeedup(arm);
+    return h('button', { ...base, type: 'button', onclick: go2 }, head,
+      h('div', { class: 'big' }, fmtX(best)), h('div', { class: 't-sub' }, `best of ${arm.attempts.length} attempts`),
+      spark(arm.attempts, 220, 38), h('div', { class: 'chips' }, arm.memory_md != null ? h('span', { class: 'chip' }, `memory ${words(arm.memory_md)} words`) : h('span', { class: 'chip warn' }, rep.errors.length ? 'aborted before memory was written' : 'no memory written (no correct candidate)'), arm.truncated ? h('span', { class: 'chip warn' }, 'hard-clipped') : null));
+  }
+  const info = trialInfo(arm);
+  return h('button', { ...base, type: 'button', onclick: go2 }, head,
+    h('div', { class: 'chips', style: 'margin:0 0 8px' }, stagePill(info.first.result), h('span', { class: 'chip' }, info.firstOk ? 'first try' : `first try failed`)),
+    h('div', { class: 'big' }, fmtX(info.final)),
+    h('div', { class: 't-sub' }, info.winTrial ? `succeeded at trial ${info.winTrial} of ${info.n}` : `never succeeded (${info.n} trials)`),
+    key === 'C' && arm.memory_seen != null ? h('div', { class: 'chips' }, h('span', { class: 'chip' }, `memory shown: ${words(stripBullet(arm.memory_seen))} words`)) : null);
+}
+function overview(ctx) {
+  const run = ctx.run, root = h('div');
+  root.append(runHeader(run), summaryTable(run));
+  run.repeats.forEach((rep, i) => {
+    root.append(h('section', { class: 'chain rise', style: `--i:${i + 2}` },
+      h('div', { class: 'chain-top' }, h('h3', null, `Chain ${rep.repeat}`),
+        h('span', null, h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'memory' }) }, 'Memory'), ' ',
+          h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'timeline' }) }, 'Open chain'))),
+      rep.errors.map((e) => errorBanner(e)),
+      h('div', { class: 'cards3' }, tileFor(run, rep, 'A'), tileFor(run, rep, 'B'), tileFor(run, rep, 'C'))));
+  });
+  if (!run.repeats.length) root.append(h('div', { class: 'empty-note' }, 'This run has no repeats.'));
+  return root;
+}
+
+/* ---------- chain view ---------- */
+function chainView(ctx) {
+  const { run, rep } = ctx, root = h('div');
+  const idx = run.repeats.indexOf(rep);
+  const nav = (d) => { const n = run.repeats[idx + d]; if (n) go({ run: run.id, repeat: n.repeat, view: ctx.view }); };
+  root.append(h('div', { class: 'crumbs rise' },
+    h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id }) }, '← all chains'),
+    h('h1', { style: 'font-size:28px' }, `${run.id} · chain ${rep.repeat}`),
+    h('span', { class: 'tabs' },
+      h('button', { type: 'button', 'aria-pressed': String(ctx.view === 'timeline'), onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'timeline' }) }, 'Timeline'),
+      h('button', { type: 'button', 'aria-pressed': String(ctx.view === 'memory'), onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'memory' }) }, 'Memory')),
+    h('span', null, h('button', { class: 'btn', type: 'button', disabled: idx <= 0, onclick: () => nav(-1) }, '‹ prev'), ' ',
+      h('button', { class: 'btn', type: 'button', disabled: idx >= run.repeats.length - 1, onclick: () => nav(1) }, 'next ›'))));
+  rep.errors.forEach((e) => root.append(errorBanner(e)));
+  root.append(ctx.view === 'memory' ? memoryView(run, rep) : timelineView(run, rep));
+  return root;
+}
+function colHead(key, extra) {
+  return h('div', { class: 'col-head' }, h('span', { class: 'stamp ' + key }, key),
+    h('div', null, h('h2', null, ARMS[key].name + ' · ' + ARMS[key].where), h('div', { class: 'sub' }, extra || ARMS[key].blurb)));
+}
+function emptyCol(key, rep, text) {
+  return h('section', { class: 'col ' + key }, colHead(key), h('div', { class: 'empty-note' }, text));
+}
+function timelineView(run, rep) {
+  const cols = h('div', { class: 'cols' });
+  const filt = (res) => !state.fail || !isOk(res);
+  // A
+  if (!rep.A) cols.append(emptyCol('A', rep, rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : 'No data.'));
+  else {
+    const col = h('section', { class: 'col A' }, colHead('A', `${rep.A.attempts.length} attempts · best ${fmtX(bestSpeedup(rep.A))}`));
+    col.append(h('div', { class: 'block rise' }, spark(rep.A.attempts, 380, 90, (i) => go({ run: run.id, repeat: rep.repeat, view: 'timeline', arm: 'A', idx: i }))));
+    const rail = h('div', { class: 'rail' });
+    rep.A.attempts.forEach((a, i) => { if (filt(a.result)) rail.append(attemptCard(run, rep, a, i ? rep.A.attempts[i - 1] : null, i)); });
+    if (!rail.children.length) rail.append(h('div', { class: 'empty-note' }, 'No failing attempts.'));
+    col.append(rail,
+      rep.A.memory_md != null ? h('div', { class: 'block' }, h('h4', null, 'Stored memory (memory.md)'), h('div', { class: 'index-card' }, h('pre', null, rep.A.memory_md)),
+        h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'memory' }) }, 'Open memory panel')) : null);
+    cols.append(col);
+  }
+  for (const key of ['B', 'C']) {
+    const arm = rep[key];
+    if (!arm) { cols.append(emptyCol(key, rep, rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : key === 'C' && rep.A && rep.A.memory_md == null && rep.A.attempts.length ? 'Skipped — arm A produced no correct candidate, so there was no memory to transfer.' : 'No data.')); continue; }
+    const col = h('section', { class: 'col ' + key }, colHead(key));
+    col.append(h('div', { class: 'block' }, h('h4', null, key === 'C' ? "Memory shown to the model (exactly as in the first prompt)" : 'Memory shown to the model'),
+      arm.memory_seen != null ? h('div', { class: 'index-card' }, h('pre', null, arm.memory_seen)) : h('div', { class: 'index-card none' }, 'none — no memory block in the prompt')));
+    const rail = h('div', { class: 'rail' });
+    arm.trials.forEach((t, i) => { if (filt(t.result)) rail.append(trialCard(run, rep, key, t, i ? arm.trials[i - 1] : null, i)); });
+    if (!rail.children.length) rail.append(h('div', { class: 'empty-note' }, 'No failing trials.'));
+    col.append(rail);
+    cols.append(col);
+  }
+  return cols;
+}
+
+/* ---------- memory panel ---------- */
+function stripBullet(s) { return s.replace(/^- /, ''); }
+function memoryView(run, rep) {
+  const cols = h('div', { class: 'cols' });
+  // A: stored memory
+  const a = rep.A;
+  const colA = h('section', { class: 'col A' }, colHead('A', 'what the refinement run wrote down'));
+  if (!a || a.memory_md == null) colA.append(h('div', { class: 'empty-note' }, !a ? 'No data.' : rep.errors.length ? 'No memory was stored: the repeat aborted before arm A finished.' : 'No memory was stored (no correct candidate).'));
+  else {
+    colA.append(h('div', { class: 'mem-meta' }, h('span', { class: 'chip' }, `${words(a.memory_md)} words`), h('span', { class: 'chip' }, `${a.memory_md.length} chars`),
+      a.memory_shorten ? h('span', { class: 'chip warn' }, 'shorten retry used') : null, a.truncated ? h('span', { class: 'chip bad hatch' }, 'hard-clipped at the word cap') : null),
+      h('div', { class: 'index-card' }, h('h4', null, 'memory.md (verbatim)'), h('pre', null, a.memory_md)));
+    if (a.truncated) colA.append(h('div', { class: 'banner warn' }, 'The reflection and the one shorten retry both exceeded the word cap, so the harness cut the text at the cap. Newlines are lost and the text can stop mid-sentence.'));
+    if (a.memory_reflection) colA.append(h('div', { class: 'row-actions' }, inspectBtn('Raw reflection call', () => openInspector('Memory reflection · chain ' + rep.repeat, [
+      { label: 'Reflection prompt', text: a.memory_reflection.prompt }, { label: 'Reflection reply', text: a.memory_reflection.text },
+      { label: 'Shorten prompt', text: a.memory_shorten && a.memory_shorten.prompt }, { label: 'Shorten reply', text: a.memory_shorten && a.memory_shorten.text }]))));
+  }
+  cols.append(colA);
+  // B
+  const colB = h('section', { class: 'col B' }, colHead('B', 'no memory block; only its own lessons'));
+  if (!rep.B) colB.append(h('div', { class: 'empty-note' }, 'No data.'));
+  else perTrialMemory(colB, rep.B, 'B');
+  cols.append(colB);
+  // C
+  const colC = h('section', { class: 'col C' }, colHead('C', "A's memory, then its own lessons"));
+  if (!rep.C) colC.append(h('div', { class: 'empty-note' }, 'Skipped or no data.'));
+  else {
+    const seen = rep.C.memory_seen;
+    if (seen != null) {
+      const same = a && a.memory_md != null && stripBullet(seen).trim() === stripBullet(a.memory_md.trim()).trim() || (a && a.memory_md != null && seen.trim() === ('- ' + a.memory_md.trim()));
+      colC.append(h('div', { class: 'mem-meta' }, h('span', { class: 'chip' }, `${words(stripBullet(seen))} words shown`),
+        same ? h('span', { class: 'chip ok' }, 'matches memory.md (plus the harness bullet)') : h('span', { class: 'chip bad' }, 'differs from memory.md'),
+        /^- (- |\*\*)/.test(seen) && /^- /.test(a && a.memory_md || '') ? h('span', { class: 'chip warn' }, 'double bullet artifact') : null),
+        h('div', { class: 'index-card' }, h('h4', null, 'shown to the model (verbatim)'), h('pre', null, seen)));
+    }
+    perTrialMemory(colC, rep.C, 'C');
+  }
+  cols.append(colC);
+  return cols;
+}
+function perTrialMemory(col, arm, key) {
+  col.append(h('h4', { class: 'eyebrow', style: 'margin:14px 0 8px' }, 'Memory in effect, per trial'));
+  const lessons = arm.trials.map((x) => x.lesson).filter(Boolean);
+  arm.trials.forEach((t) => {
+    const box = h('div', { class: 'block' }, h('div', { class: 'chips' }, h('span', { class: 'chip' }, `trial ${t.trial}`), stagePill(t.result), h('span', { class: 'chip' }, `${t.memory.length} entr${t.memory.length === 1 ? 'y' : 'ies'}`)));
+    if (!t.memory.length) box.append(h('div', { class: 'index-card none' }, 'none'));
+    t.memory.forEach((m, i) => {
+      const li = lessons.indexOf(m);  // an entry equal to an earlier lesson is that lesson; anything else came in with the run
+      const origin = li >= 0 ? `lesson from trial ${li + 1}` : key === 'C' ? 'carried in from arm A' : 'earlier entry';
+      box.append(h('div', { class: 'index-card' + (li >= 0 ? ' lesson' : '') }, h('h4', null, `entry ${i + 1} · ${origin}`), h('pre', null, m)));
+    });
+    if (t.lesson) box.append(noteBlock(`Lesson written after trial ${t.trial} (added to memory)`, t.lesson));
+    col.append(box);
+  });
+}
+
+/* ---------- inspector drawer ---------- */
+const drawer = $('#drawer'), scrim = $('#scrim');
+let drawerState = null;
+function openInspector(title, sections) {
+  const items = sections.filter((s) => s.text != null || s.obj != null);
+  drawerState = { items, current: 0 };
+  $('#drawer-title').textContent = title;
+  const tabs = $('#drawer-tabs');
+  tabs.replaceChildren();
+  items.forEach((it, i) => tabs.append(h('button', { type: 'button', role: 'tab', 'aria-selected': String(i === 0), onclick: () => showTab(i) }, it.label)));
+  drawer.hidden = false; scrim.hidden = false;
+  showTab(0);
+  $('#drawer-close').focus();
+}
+function currentText() {
+  const it = drawerState.items[drawerState.current];
+  return it.text != null ? it.text : JSON.stringify(it.obj, null, 2);
+}
+function showTab(i) {
+  drawerState.current = i;
+  [...$('#drawer-tabs').children].forEach((b, j) => b.setAttribute('aria-selected', String(i === j)));
+  const text = currentText();
+  $('#drawer-info').textContent = `${text.length.toLocaleString()} chars · ${text.split('\n').length.toLocaleString()} lines · ${words(text).toLocaleString()} words`;
+  $('#drawer-body').replaceChildren(h('pre', null, text));
+  $('#drawer-body').scrollTop = 0;
+}
+function closeInspector() { drawer.hidden = true; scrim.hidden = true; drawerState = null; }
+$('#drawer-close').addEventListener('click', closeInspector);
+scrim.addEventListener('click', closeInspector);
+$('#drawer-copy').addEventListener('click', async () => {
+  if (!drawerState) return;
+  const text = currentText(), btn = $('#drawer-copy');
+  let done = false;
+  try { await navigator.clipboard.writeText(text); done = true; } catch (e) { /* fall through */ }
+  if (!done) {
+    const ta = h('textarea', { style: 'position:fixed;opacity:0' }); ta.value = text; document.body.append(ta); ta.select();
+    try { done = document.execCommand('copy'); } catch (e) { done = false; } ta.remove();
+  }
+  btn.textContent = done ? 'Copied' : 'Copy failed'; setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+});
+
+/* ---------- chrome: run pills, toggles, keyboard ---------- */
+function renderTop(ctx) {
+  const nav = $('#runs');
+  nav.replaceChildren();
+  RUNS.filter((r) => state.dev || !r.dev || (ctx.run && ctx.run.id === r.id)).forEach((r) => {
+    nav.append(h('button', { class: 'run-pill', type: 'button', 'aria-current': String(ctx.run && ctx.run.id === r.id), onclick: () => go({ run: r.id }) },
+      r.id.replace(/^matxfer_/, ''), h('small', null, r.dev ? 'dev' : '$' + r.cost_usd.toFixed(0))));
+  });
+  $('#opt-dev').checked = state.dev; $('#opt-fail').checked = state.fail;
+}
+function applyTheme(t) { document.documentElement.dataset.theme = t; store.set('mtn-theme', t); }
+applyTheme(['light', 'dark'].includes(query.get('theme')) ? query.get('theme') : store.get('mtn-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+$('#opt-theme').addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+$('#opt-dev').addEventListener('change', (e) => { state.dev = e.target.checked; store.set('mtn-dev', state.dev ? '1' : '0'); render(); });
+$('#opt-fail').addEventListener('change', (e) => { state.fail = e.target.checked; render(); });
+document.addEventListener('keydown', (e) => {
+  // checkboxes keep focus after a click, so only text-entry controls should swallow shortcuts
+  if (e.metaKey || e.ctrlKey || e.altKey || (e.target.matches && e.target.matches('textarea, select, input:not([type="checkbox"])'))) return;
+  if (e.key === 'Escape') { closeInspector(); return; }
+  if (drawerState) return;
+  const ctx = resolve();
+  const heads = [...document.querySelectorAll('.card-head')];
+  const at = heads.indexOf(document.activeElement);
+  if (e.key === 'j' || e.key === 'k') { const next = heads[at < 0 ? 0 : at + (e.key === 'j' ? 1 : -1)]; if (next) { next.focus(); next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } }
+  else if (e.key === 't') applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+  else if (e.key === 'f') { state.fail = !state.fail; render(); }
+  else if (e.key === 'm' && ctx.run && ctx.rep) go({ run: ctx.run.id, repeat: ctx.rep.repeat, view: ctx.view === 'memory' ? 'timeline' : 'memory' });
+  else if ((e.key === '[' || e.key === ']') && ctx.run && ctx.rep) {
+    const reps = ctx.run.repeats, n = reps[reps.indexOf(ctx.rep) + (e.key === ']' ? 1 : -1)];
+    if (n) go({ run: ctx.run.id, repeat: n.repeat, view: ctx.view });
+  }
+});
+
+/* ---------- render ---------- */
+const app = $('#app');
+function afterRender(ctx) {
+  if (ctx.rep && ctx.view === 'timeline' && ctx.arm && ctx.idx != null) {
+    const el = document.querySelector(`[data-key="${ctx.arm}-${ctx.idx}"]`);
+    if (el) { el.toggleOpen(true); el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); }
+  }
+  if (!ctx.arm) window.scrollTo(0, 0);
+}
+function render() {
+  try {
+    const ctx = resolve();
+    renderTop(ctx);
+    app.replaceChildren();
+    if (!ctx.run) { app.append(h('div', { class: 'empty-note' }, 'No runs found under traces/.')); return; }
+    if (ctx.missing) app.append(h('div', { class: 'banner warn' }, `Run “${ctx.missing}” was not found in this build; showing ${ctx.run.id} instead.`));
+    app.append(ctx.rep ? chainView(ctx) : overview(ctx), h('footer', null,
+      h('span', null, h('kbd', null, 'j'), ' ', h('kbd', null, 'k'), ' move between steps'), h('span', null, h('kbd', null, '['), ' ', h('kbd', null, ']'), ' previous / next chain'),
+      h('span', null, h('kbd', null, 'm'), ' memory panel'), h('span', null, h('kbd', null, 'f'), ' failures only'), h('span', null, h('kbd', null, 't'), ' theme'), h('span', null, h('kbd', null, 'Esc'), ' close inspector')));
+    afterRender(ctx);
+  } catch (err) {
+    app.replaceChildren(h('div', { class: 'error-panel' }, h('h3', null, 'The viewer hit an error while rendering'), h('pre', null, String(err && err.stack || err))));
+  }
+}
+window.addEventListener('hashchange', render);
+render();
+})();
+</script>
+</body>
+</html>

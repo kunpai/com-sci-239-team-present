@@ -1,0 +1,63 @@
+{
+  "arm": "A",
+  "repeat": 1,
+  "step": 4,
+  "kind": "llm",
+  "memory": [],
+  "role": "memory_shorten",
+  "prompt": "Shorten the following notes to at most 200 words, keeping the most useful facts. Reply with the shortened notes only.\n\nNotes for future self (matmul, n\u22481000):\n\n- Attempt 0 reached 10.3 ms (206x over naive) with three pieces: B packed into 16-wide column panels, a 6x16 register-blocked microkernel using GCC vector extensions (v4 floats via memcpy loads), and pthreads with an atomic work queue over 48-row chunks. K blocking at KC=256 keeps A rows and the panel slice in L1/L2. With -march=native the compiler likely widens the v4 ops into AVX/FMA, but I haven't checked the generated assembly.\n- I made only one attempt, so I have no ablations. I can't say how much each piece contributed.\n- Weaknesses:\n  - A is not packed, so the kernel uses strided scalar loads from 6 rows.\n  - The loop order runs over every panel for each chunk, which leaves the B panel slice (KC\u00d7NR) small but gives poor reuse of A across panels.\n  - Threads are created twice per call. That spawn overhead is noticeable at 10 ms.\n- Next steps:\n  - Pack A into MR-interleaved blocks.\n  - Use 8-wide vectors (v8 / AVX2) with an 8x8 or 6x16 kernel and explicit FMA. Check whether the machine is ARM (NEON, where the darwin host suggests possibly Apple M-series) or x86.\n  - Tune MC/KC/NC for L2/L3 in the BLIS-style ordering.\n  - Merge packing and compute into one parallel region, or use an OpenMP persistent pool.\n  - Try -O3 -march=native -ffast-math -funroll-loops.\n",
+  "text": "Notes for future self (matmul, n\u22481000):\n\n**Attempt 0: 10.3 ms (206x over naive)**\n- B packed into 16-wide column panels.\n- 6x16 register-blocked microkernel using GCC vector extensions (v4 floats, memcpy loads).\n- pthreads with an atomic work queue over 48-row chunks.\n- KC=256 K-blocking keeps A rows and the panel slice in L1/L2.\n- -march=native may widen v4 to AVX/FMA; assembly not checked.\n- Single attempt, no ablations, so per-piece contributions are unknown.\n\n**Weaknesses**\n- A is unpacked, so the kernel does strided scalar loads from 6 rows.\n- Each chunk loops over all panels, giving poor A reuse across panels.\n- Threads are spawned twice per call, which is noticeable overhead at 10 ms.\n\n**Next steps**\n- Pack A into MR-interleaved blocks.\n- Use 8-wide vectors (AVX2) with an 8x8 or 6x16 kernel and explicit FMA. First check the architecture: darwin suggests possibly Apple M-series (NEON) rather than x86.\n- Tune MC/KC/NC for L2/L3 using BLIS-style loop ordering.\n- Merge packing and compute into one parallel region, or use a persistent OpenMP pool.\n- Try -O3 -march=native -ffast-math -funroll-loops.",
+  "session_id": "54eae743-83e3-4ab1-812d-cf1fd334c5a2",
+  "cost_usd": 0.0184736,
+  "duration_s": 4.799,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 986,
+    "cache_read_input_tokens": 2188,
+    "output_tokens": 507,
+    "output_tokens_details": {
+      "thinking_tokens": 18
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 986,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 507,
+        "cache_read_input_tokens": 2188,
+        "cache_creation_input_tokens": 986,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 986
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 507,
+      "cacheReadInputTokens": 2188,
+      "cacheCreationInputTokens": 986,
+      "webSearchRequests": 0,
+      "costUSD": 0.0184736,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 18,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  }
+}

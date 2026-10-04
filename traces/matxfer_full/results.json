@@ -1,0 +1,150 @@
+{
+  "config": {
+    "rounds": 10,
+    "repeats": 3,
+    "trials": 3,
+    "window": 3,
+    "memory_cap_words": 200,
+    "lesson_cap_words": 80,
+    "n": 1024,
+    "reps": 3,
+    "cpus": 4,
+    "mem_limit": "4g",
+    "llm_timeout_s": 300,
+    "compile_timeout_s": 300,
+    "run_timeout_s": 1800,
+    "max_naive_s": 120.0,
+    "model": null
+  },
+  "naive_ms": {
+    "amd64": 2090.112,
+    "armv7": 4163.142
+  },
+  "refine": [
+    {
+      "repeat": 1,
+      "speedups": [
+        212.3881719337466,
+        201.06897546897548,
+        261.8531696316713,
+        240.79631336405532,
+        204.41193154034232,
+        219.29619137551148,
+        247.0289563881338,
+        256.770515970516,
+        224.38132045088568,
+        223.804690009637,
+        239.66425868593052
+      ],
+      "best_speedup": 261.8531696316713,
+      "memory": "**Matmul notes (n\u22481000, unknown CPU)**\n\n**Best: attempt 2, 8.0 ms (~250 GFLOP/s)**\n- Packed A and B in persistent static buffers (grow only when n increases)\n- 12\u00d732 AVX-512 / 6\u00d716 AVX2 kernel, KC=256\n- `collapse(2)` dynamic tasks, p-outer/q-inner\n- Flags: `-O3 -march=native -fopenmp -ffast-math -funroll-loops`\n\n**Helped:**\n- Persistent buffers vs. per-call malloc: 10.4 \u2192 8.0 ms (biggest win; avoids page faults)\n- Packing A once\n- KC\u2248256\n\n**Hurt/neutral:**\n- KC=192: 9.5; KC=504: 8.5; KC=n: 8.1 ms\n- Thread-derived tiny tasks: 8.7 ms\n- Static contiguous split + per-thread A pack: 10.2 ms\n- Unpacked A or per-task redundant A pack: 9.3 ms\n- Vectorized tr8 transpose/merged pack loop: 8.5\u20138.7 ms (packing isn't the bottleneck)\n- Prefetch tweaks: neutral to slightly worse\n\n**Untested:**\n- If Zen4 (double-pumped 512-bit), try `-mprefer-vector-width=256` or force 6\u00d716 AVX2\n- One task per ib strip looping all jb, A packed once per kb\n- Overlap packing next kb slice of B with compute\n- 14\u00d732 or 8\u00d748 tile\n- `proc_bind(close)` affinity\n\n**Advice:** Change one variable at a time from attempt 2; noise \u2248 \u00b10.5 ms.",
+      "note": ""
+    },
+    {
+      "repeat": 2,
+      "speedups": [
+        292.9789739276703,
+        252.79535558780842,
+        270.9856087125632,
+        227.11202868629798,
+        314.72850474326157,
+        203.2392065344224,
+        310.2437286626095,
+        320.6676894752992,
+        316.2045385779123,
+        343.31668856767413,
+        353.8364652107669
+      ],
+      "best_speedup": 353.8364652107669,
+      "memory": "Notes (matmul, n\u22481000, gcc, OpenMP, AVX-512):\n\n- Baseline (Attempt 0): 6\u00d716 ymm BLIS kernel, packed A and B, 7.1 ms.\n- Unpacked A (read rows with stride n): 6.6 ms. Global A pre-pack (8.3) and per-task A repack (9.2) both hurt.\n- KCMAX 384 slightly beat 320 (6.5 ms). 512 gave 10.3 ms because the B panel overflowed L1. KC=192 with 8\u00d732 zmm gave no gain.\n- AVX-512 only helped with a 12\u00d732 zmm kernel: 24 accumulators, unpacked A, zero-padded ebuf for the row edge, NV=1 path for column edges. 6.1 ms.\n- Best so far (Attempt 10), 5.9 ms: `ir` loop outer, `jp` inner, so A rows stay in L1.\n- Neutral or harmful: `-mno-avx512f`, 16\u00d7 manual unroll with prefetches, `-funroll-loops` with a big body, masked edge stores (neutral).\n- Try next, one at a time:\n  - KCMAX ~192\u2013224 with 12\u00d732 (B panel fits L1 vs. extra C pass).\n  - Pack B per kb slice to drop the serial pre-pack barrier.\n  - 8-column masked edge.\n  - Tune MC and PPCMAX.\n  - Pack the 12-row A strip contiguously per (task, kb), in case n=1024 aliasing matters.",
+      "note": ""
+    },
+    {
+      "repeat": 3,
+      "speedups": [
+        278.42173970960437,
+        220.91871895148503,
+        246.2141595005301,
+        278.01436552274544,
+        275.2682734097195,
+        324.55155279503106,
+        304.9477677268748,
+        306.2883939038687,
+        266.49394364401377,
+        303.9278755271194,
+        312.2832810398925
+      ],
+      "best_speedup": 324.55155279503106,
+      "memory": "Matmul task notes (n\u22481000, float, unknown Linux CPU with AVX-512):\n\n- **Baseline:** Goto-style AVX2 6\u00d716 kernel, packed A/B, KC=256, dynamic OpenMP items: 7.5 ms (~270 GFLOP/s).\n- **Best (Attempt 5): 6.4 ms.** 12\u00d732 zmm kernel, `-mprefer-vector-width=512`, KC=256. A and B packed once, one barrier. Dynamic items are MC\u00d7NCG tiles over full K, with \u22653\u00d7nt items. Only the AVX-512 switch gave a real gain (~15%).\n- **No help (7.5\u20137.6 ms):** static buffers, shared A packing, double buffering, 2D static thread grids, full-K items on AVX2. Blocking variations plateau, so the limit is likely kernel throughput or noise.\n- **Regressions:** KC=384 with NR=32 (B panel overflows L1): 9.5 ms. KC=192: 6.9 ms. Unaligned kc=250: 6.8 ms. MR=8: 6.9 ms. Noinline edge kernel: 7.8 ms (probably noise).\n- **Neutral:** physical-core threads via sysfs SMT width: 6.7 ms.\n- **Noise:** ~\u00b110%; differences under 0.5 ms aren't meaningful.\n- **Next steps:**\n  - Resubmit Attempt 5 verbatim to measure noise.\n  - Try a 14\u00d732 kernel; check for spills.\n  - Pack B lazily per item to overlap with compute; replace the stride-n A gather with a vector transpose.\n  - Add `-falign-loops=64`.\n  - Prefetch next A/B micro-panels.",
+      "note": ""
+    }
+  ],
+  "arms": [
+    {
+      "arm": "B",
+      "repeat": 1,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 3.5099773372633396,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 1,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 2.7865500500999656,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "B",
+      "repeat": 2,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 2.7868522362672046,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 2,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 3.802543040889416,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "B",
+      "repeat": 3,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 3.707062144377265,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    },
+    {
+      "arm": "C",
+      "repeat": 3,
+      "first_try_success": false,
+      "trials_to_success": 2,
+      "final_speedup": 2.637103149466643,
+      "first_failure_stage": "compile",
+      "n_steps": 2,
+      "skipped": false,
+      "note": ""
+    }
+  ]
+}

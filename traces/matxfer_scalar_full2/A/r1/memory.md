@@ -1,0 +1,16 @@
+- **Baseline (best):** Attempt 0/8 structure: per-pc parallel region, cooperative B pack into shared buffer, then collapse(2) dynamic,1 over 128-row × 64-col tasks with private A pack. Runs 10.6–10.9 ms (~195–200x over naive). All attempts landed in 10.6–13.9 ms, so differences are near noise.
+- **Hurt (12–14 ms):**
+  - Full up-front packing without KC blocking (A3, A4)
+  - Static 2-D thread grids with private B packing (A6)
+  - Coarse tasks, fewer than 4×nt (A1, A9)
+  - Double-buffered B with static slicing (A7)
+  - MC=64 (A5)
+- **Key insight:** Dynamic fine-grained scheduling beat every static scheme. The machine likely has many cores, and tail imbalance dominates.
+- **Neutral:** last_ib A-reuse cache (A8, ~0.3 ms, likely noise), MR=12 on AVX-512 (A10), parallel region outside or static buffers (A9).
+- **Next:**
+  - Pack all of A per pc cooperatively with B in the same omp for, so compute has zero packing. Keep dynamic,1 fine tasks.
+  - JCHUNK=NR*2 for more tasks.
+  - KC=384 alone.
+  - Masked edge stores.
+  - Maybe num_threads = physical cores.
+  - Verify AVX-512 is present; the AVX2 path may be what runs.

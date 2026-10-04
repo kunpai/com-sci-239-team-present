@@ -1,0 +1,63 @@
+{
+  "arm": "A",
+  "repeat": 1,
+  "step": 34,
+  "kind": "llm",
+  "memory": [],
+  "role": "memory_shorten",
+  "prompt": "Shorten the following notes to at most 200 words, keeping the most useful facts. Reply with the shortened notes only.\n\n- Baseline that works: Attempt 0/8 structure (per-pc parallel region, cooperative B pack into shared buffer, then collapse(2) dynamic,1 over 128-row \u00d7 64-col tasks with private A pack). It ran 10.6\u201310.9 ms, about 195\u2013200x over the naive loop. Everything else landed between 10.6 and 13.9 ms, so differences are near noise.\n- Things that hurt (12\u201314 ms):\n  - Full up-front packing with no KC blocking (A3, A4).\n  - Static 2-D thread grids with private B packing (A6).\n  - Coarse tasks under 4\u00d7nt (A1, A9).\n  - Double-buffered B with static slicing (A7).\n  - Smaller MC=64 (A5).\n- Dynamic fine-grained scheduling beat every static scheme. The machine likely has many cores, and tail imbalance dominates.\n- Neutral: the last_ib A-reuse cache (A8, about 0.3 ms, likely noise), MR=12 on AVX-512 (A10, no gain), and moving the parallel region outside / static buffers (A9, no gain).\n- Next:\n  - Pack all of A for each pc cooperatively alongside B in the same omp for, so the compute loop has zero packing. Keep dynamic,1 fine tasks.\n  - Try JCHUNK=NR*2 for more tasks.\n  - Try KC=384 by itself.\n  - Use masked edge stores.\n  - Possibly try num_threads = physical cores.\n  - Check whether AVX-512 is actually present; the AVX2 path may be what runs.\n",
+  "text": "- **Baseline (best):** Attempt 0/8 structure: per-pc parallel region, cooperative B pack into shared buffer, then collapse(2) dynamic,1 over 128-row \u00d7 64-col tasks with private A pack. Runs 10.6\u201310.9 ms (~195\u2013200x over naive). All attempts landed in 10.6\u201313.9 ms, so differences are near noise.\n- **Hurt (12\u201314 ms):**\n  - Full up-front packing without KC blocking (A3, A4)\n  - Static 2-D thread grids with private B packing (A6)\n  - Coarse tasks, fewer than 4\u00d7nt (A1, A9)\n  - Double-buffered B with static slicing (A7)\n  - MC=64 (A5)\n- **Key insight:** Dynamic fine-grained scheduling beat every static scheme. The machine likely has many cores, and tail imbalance dominates.\n- **Neutral:** last_ib A-reuse cache (A8, ~0.3 ms, likely noise), MR=12 on AVX-512 (A10), parallel region outside or static buffers (A9).\n- **Next:**\n  - Pack all of A per pc cooperatively with B in the same omp for, so compute has zero packing. Keep dynamic,1 fine tasks.\n  - JCHUNK=NR*2 for more tasks.\n  - KC=384 alone.\n  - Masked edge stores.\n  - Maybe num_threads = physical cores.\n  - Verify AVX-512 is present; the AVX2 path may be what runs.",
+  "session_id": "8f25ecef-646e-48be-a756-0678659b3de9",
+  "cost_usd": 0.0189656,
+  "duration_s": 4.954,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 975,
+    "cache_read_input_tokens": 2188,
+    "output_tokens": 536,
+    "output_tokens_details": {
+      "thinking_tokens": 19
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 975,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 536,
+        "cache_read_input_tokens": 2188,
+        "cache_creation_input_tokens": 975,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 975
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 536,
+      "cacheReadInputTokens": 2188,
+      "cacheCreationInputTokens": 975,
+      "webSearchRequests": 0,
+      "costUSD": 0.0189656,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 19,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  }
+}

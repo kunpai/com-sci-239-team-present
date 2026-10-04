@@ -1,0 +1,64 @@
+{
+  "arm": "A",
+  "repeat": 2,
+  "step": 1,
+  "kind": "llm",
+  "memory": [],
+  "role": "generate",
+  "prompt": "You are optimizing a C function for speed.\n\nWrite a single C source file that defines\n\n    void matmul(const float *A, const float *B, float *C, int n);\n\nwhich computes C = A * B for square n x n matrices of single-precision (float) values stored in row-major order, so element (i, j) of A is A[i*n + j]. The three buffers do not overlap. C is not initialized: your function must write every element of C.\n\nRequirements:\n- The result must be correct for every positive n, not only for convenient sizes. Results are checked against a reference with a relative tolerance of about 1e-3, so reordering floating-point sums is fine.\n- The benchmark runs large matrices (around a thousand rows and columns) and reports the best of several runs, so optimize for large n.\n- The file is compiled with gcc and linked, together with a fixed benchmark harness that calls matmul, against the C math library and pthreads. Do not define main. Only the C standard library, libm, pthreads and OpenMP are available.\n- You choose the compiler flags. They are passed to gcc as given (for example -O3 or -fopenmp). Flags that set the output file, add include or library paths, or pass options through to the linker are rejected.\n- The program is built and run inside a Linux container, not on the machine you are running on. The CPU is not disclosed.\n- Optimize for speed on the machine this runs on.\n\nReply format. Reply with the complete source file in exactly one fenced block:\n\n```c\n...\n```\n\nfollowed on its own line by the compiler flags, for example:\n\nFLAGS: -O3 -march=native\n\nDo not write any other code block or any other line starting with FLAGS:.\n",
+  "text": "```c\n#include <stdlib.h>\n#include <string.h>\n#include <omp.h>\n\n#define MR 6\n#define NR 16\n#define KC 256\n#define MC 96\n#define NC 192\n\ntypedef float v8 __attribute__((vector_size(32)));\ntypedef float v8u __attribute__((vector_size(32), aligned(4)));\n\nstatic void kernel(int kc, const float *restrict a, const float *restrict b,\n                   float *restrict C, int ldc, int mr, int nr, int first)\n{\n    v8 c00 = {0}, c01 = {0}, c10 = {0}, c11 = {0}, c20 = {0}, c21 = {0};\n    v8 c30 = {0}, c31 = {0}, c40 = {0}, c41 = {0}, c50 = {0}, c51 = {0};\n\n    for (int k = 0; k < kc; k++) {\n        v8 b0 = *(const v8 *)(b);\n        v8 b1 = *(const v8 *)(b + 8);\n        float a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3], a4 = a[4], a5 = a[5];\n        c00 += a0 * b0; c01 += a0 * b1;\n        c10 += a1 * b0; c11 += a1 * b1;\n        c20 += a2 * b0; c21 += a2 * b1;\n        c30 += a3 * b0; c31 += a3 * b1;\n        c40 += a4 * b0; c41 += a4 * b1;\n        c50 += a5 * b0; c51 += a5 * b1;\n        a += MR;\n        b += NR;\n    }\n\n    if (mr == MR && nr == NR) {\n#define ST(r, x0, x1) do { \\\n            v8u *p = (v8u *)(C + (r) * ldc); \\\n            if (first) { p[0] = x0; ((v8u *)(C + (r) * ldc + 8))[0] = x1; } \\\n            else { p[0] += x0; ((v8u *)(C + (r) * ldc + 8))[0] += x1; } \\\n        } while (0)\n        ST(0, c00, c01); ST(1, c10, c11); ST(2, c20, c21);\n        ST(3, c30, c31); ST(4, c40, c41); ST(5, c50, c51);\n#undef ST\n    } else {\n        v8 t[MR][2] __attribute__((aligned(32)));\n        t[0][0] = c00; t[0][1] = c01; t[1][0] = c10; t[1][1] = c11;\n        t[2][0] = c20; t[2][1] = c21; t[3][0] = c30; t[3][1] = c31;\n        t[4][0] = c40; t[4][1] = c41; t[5][0] = c50; t[5][1] = c51;\n        const float *tf = (const float *)t;\n        for (int i = 0; i < mr; i++) {\n            float *cr = C + i * ldc;\n            const float *tr = tf + i * NR;\n            if (first)\n                for (int j = 0; j < nr; j++) cr[j] = tr[j];\n            else\n                for (int j = 0; j < nr; j++) cr[j] += tr[j];\n        }\n    }\n}\n\nstatic void pack_a(const float *A, int n, int i0, int mc, int p0, int kc, float *restrict ap)\n{\n    for (int ir = 0; ir < mc; ir += MR) {\n        int mr = mc - ir < MR ? mc - ir : MR;\n        for (int r = 0; r < MR; r++) {\n            if (r < mr) {\n                const float *src = A + (size_t)(i0 + ir + r) * n + p0;\n                for (int k = 0; k < kc; k++) ap[k * MR + r] = src[k];\n            } else {\n                for (int k = 0; k < kc; k++) ap[k * MR + r] = 0.0f;\n            }\n        }\n        ap += (size_t)MR * kc;\n    }\n}\n\nvoid matmul(const float *A, const float *B, float *C, int n)\n{\n    if (n <= 0) return;\n    int npan = (n + NR - 1) / NR;\n    size_t bsz = (size_t)n * npan * NR * sizeof(float);\n    bsz = (bsz + 63) & ~(size_t)63;\n    float *Bp = (float *)aligned_alloc(64, bsz);\n\n    int nib = (n + MC - 1) / MC;\n    int njb = (n + NC - 1) / NC;\n    int nkb = (n + KC - 1) / KC;\n\n    #pragma omp parallel\n    {\n        float *ap = (float *)aligned_alloc(64, (size_t)MC * KC * sizeof(float));\n\n        /* Pack B: for each k-block p0, panels of kc x NR, zero padded. */\n        #pragma omp for collapse(2) schedule(static)\n        for (int kb = 0; kb < nkb; kb++) {\n            for (int jp = 0; jp < npan; jp++) {\n                int p0 = kb * KC;\n                int kc = n - p0 < KC ? n - p0 : KC;\n                int j0 = jp * NR;\n                int nr = n - j0 < NR ? n - j0 : NR;\n                float *dst = Bp + (size_t)p0 * npan * NR + (size_t)jp * kc * NR;\n                for (int k = 0; k < kc; k++) {\n                    const float *src = B + (size_t)(p0 + k) * n + j0;\n                    float *d = dst + k * NR;\n                    int j = 0;\n                    for (; j < nr; j++) d[j] = src[j];\n                    for (; j < NR; j++) d[j] = 0.0f;\n                }\n            }\n        }\n\n        #pragma omp for collapse(2) schedule(dynamic, 1)\n        for (int ib = 0; ib < nib; ib++) {\n            for (int jb = 0; jb < njb; jb++) {\n                int i0 = ib * MC;\n                int mc = n - i0 < MC ? n - i0 : MC;\n                int j0 = jb * NC;\n                int nc = n - j0 < NC ? n - j0 : NC;\n                int jp0 = j0 / NR;\n                int jp1 = (j0 + nc + NR - 1) / NR;\n                for (int kb = 0; kb < nkb; kb++) {\n                    int p0 = kb * KC;\n                    int kc = n - p0 < KC ? n - p0 : KC;\n                    pack_a(A, n, i0, mc, p0, kc, ap);\n                    const float *bblk = Bp + (size_t)p0 * npan * NR;\n                    for (int jp = jp0; jp < jp1; jp++) {\n                        int jj = jp * NR;\n                        int nr = n - jj < NR ? n - jj : NR;\n                        const float *bp = bblk + (size_t)jp * kc * NR;\n                        for (int ir = 0; ir < mc; ir += MR) {\n                            int mr = mc - ir < MR ? mc - ir : MR;\n                            kernel(kc, ap + (size_t)ir * kc, bp,\n                                   C + (size_t)(i0 + ir) * n + jj, n,\n                                   mr, nr, kb == 0);\n                        }\n                    }\n                }\n            }\n        }\n        free(ap);\n    }\n    free(Bp);\n}\n```\n\nFLAGS: -O3 -march=native -fopenmp -funroll-loops",
+  "session_id": "8c20c564-30cf-4ed4-94e9-15bcab6a4da3",
+  "cost_usd": 0.10103,
+  "duration_s": 44.93,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 3110,
+    "output_tokens": 5020,
+    "output_tokens_details": {
+      "thinking_tokens": 2522
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 5020,
+        "cache_read_input_tokens": 3110,
+        "cache_creation_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 5020,
+      "cacheReadInputTokens": 3110,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.10103,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 2522,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "round_no": 0
+}

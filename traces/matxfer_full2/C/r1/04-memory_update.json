@@ -1,0 +1,11 @@
+{
+  "arm": "C",
+  "repeat": 1,
+  "step": 4,
+  "kind": "memory_update",
+  "memory": [
+    "- **Baseline (best):** Attempt 0/8 structure: per-pc parallel region, cooperative B pack into shared buffer, then collapse(2) dynamic,1 over 128-row \u00d7 64-col tasks with private A pack. Runs 10.6\u201310.9 ms (~195\u2013200x over naive). All attempts landed in 10.6\u201313.9 ms, so differences are near noise.\n- **Hurt (12\u201314 ms):**\n  - Full up-front packing without KC blocking (A3, A4)\n  - Static 2-D thread grids with private B packing (A6)\n  - Coarse tasks, fewer than 4\u00d7nt (A1, A9)\n  - Double-buffered B with static slicing (A7)\n  - MC=64 (A5)\n- **Key insight:** Dynamic fine-grained scheduling beat every static scheme. The machine likely has many cores, and tail imbalance dominates.\n- **Neutral:** last_ib A-reuse cache (A8, ~0.3 ms, likely noise), MR=12 on AVX-512 (A10), parallel region outside or static buffers (A9).\n- **Next:**\n  - Pack all of A per pc cooperatively with B in the same omp for, so compute has zero packing. Keep dynamic,1 fine tasks.\n  - JCHUNK=NR*2 for more tasks.\n  - KC=384 alone.\n  - Masked edge stores.\n  - Maybe num_threads = physical cores.\n  - Verify AVX-512 is present; the AVX2 path may be what runs."
+  ],
+  "trial": 1,
+  "lesson": "The build failed because `immintrin.h` doesn't exist on the target, so the CPU is probably not x86 (likely ARM/aarch64). Next time, don't include any architecture-specific header unconditionally. Guard x86 intrinsics with `__x86_64__` and NEON with `__aarch64__`/`arm_neon.h`. Better still, write portable code using GCC vector extensions (`vector_size`) so `-O3 -march=native` vectorizes for any ISA. Keep the proven blocking and dynamic OpenMP scheduling, and always include a scalar fallback that compiles."
+}

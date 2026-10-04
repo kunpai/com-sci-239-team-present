@@ -1,0 +1,64 @@
+{
+  "arm": "B",
+  "repeat": 3,
+  "step": 1,
+  "kind": "llm",
+  "memory": [],
+  "role": "generate",
+  "prompt": "You are optimizing a C function for speed.\n\nWrite a single C source file that defines\n\n    void matmul(const float *A, const float *B, float *C, int n);\n\nwhich computes C = A * B for square n x n matrices of single-precision (float) values stored in row-major order, so element (i, j) of A is A[i*n + j]. The three buffers do not overlap. C is not initialized: your function must write every element of C.\n\nRequirements:\n- The result must be correct for every positive n, not only for convenient sizes. Results are checked against a reference with a relative tolerance of about 1e-3, so reordering floating-point sums is fine.\n- The benchmark runs large matrices (around a thousand rows and columns) and reports the best of several runs, so optimize for large n.\n- The file is compiled with gcc and linked, together with a fixed benchmark harness that calls matmul, against the C math library and pthreads. Do not define main. Only the C standard library, libm, pthreads and OpenMP are available.\n- You choose the compiler flags. They are passed to gcc as given (for example -O3 or -fopenmp). Flags that set the output file, add include or library paths, or pass options through to the linker are rejected.\n- The program is built and run inside a Linux container, not on the machine you are running on. The CPU is not disclosed.\n- Optimize for speed on the machine this runs on.\n\nReply format. Reply with the complete source file in exactly one fenced block:\n\n```c\n...\n```\n\nfollowed on its own line by the compiler flags, for example:\n\nFLAGS: -O3 -march=native\n\nDo not write any other code block or any other line starting with FLAGS:.\n",
+  "text": "```c\n#include <stdlib.h>\n#include <string.h>\n\n#define MR 6\n#define NR 16\n#define KC 256\n#define MC 96\n\ntypedef float v8 __attribute__((vector_size(32)));\n\nstatic inline v8 ld(const float *p) { v8 v; memcpy(&v, p, sizeof v); return v; }\nstatic inline void st(float *p, v8 v) { memcpy(p, &v, sizeof v); }\nstatic inline v8 bc(float a) { v8 v = {a, a, a, a, a, a, a, a}; return v; }\n\nstatic void kernel(const float *restrict Ap, const float *restrict Bp, int kc,\n                   float *restrict C, int ldc, int mr, int nr, int first)\n{\n    v8 c00 = {0}, c01 = {0}, c10 = {0}, c11 = {0}, c20 = {0}, c21 = {0};\n    v8 c30 = {0}, c31 = {0}, c40 = {0}, c41 = {0}, c50 = {0}, c51 = {0};\n\n    for (int k = 0; k < kc; k++) {\n        const v8 *bp = (const v8 *)(Bp + k * NR);\n        v8 b0 = bp[0], b1 = bp[1];\n        const float *a = Ap + k * MR;\n        v8 a0 = bc(a[0]); c00 += a0 * b0; c01 += a0 * b1;\n        v8 a1 = bc(a[1]); c10 += a1 * b0; c11 += a1 * b1;\n        v8 a2 = bc(a[2]); c20 += a2 * b0; c21 += a2 * b1;\n        v8 a3 = bc(a[3]); c30 += a3 * b0; c31 += a3 * b1;\n        v8 a4 = bc(a[4]); c40 += a4 * b0; c41 += a4 * b1;\n        v8 a5 = bc(a[5]); c50 += a5 * b0; c51 += a5 * b1;\n    }\n\n    if (mr == MR && nr == NR) {\n#define ROW(r, x0, x1) do { float *p = C + (r) * ldc; \\\n        if (first) { st(p, x0); st(p + 8, x1); } \\\n        else { st(p, ld(p) + x0); st(p + 8, ld(p + 8) + x1); } } while (0)\n        ROW(0, c00, c01); ROW(1, c10, c11); ROW(2, c20, c21);\n        ROW(3, c30, c31); ROW(4, c40, c41); ROW(5, c50, c51);\n#undef ROW\n    } else {\n        float t[MR][NR];\n        st(t[0], c00); st(t[0] + 8, c01);\n        st(t[1], c10); st(t[1] + 8, c11);\n        st(t[2], c20); st(t[2] + 8, c21);\n        st(t[3], c30); st(t[3] + 8, c31);\n        st(t[4], c40); st(t[4] + 8, c41);\n        st(t[5], c50); st(t[5] + 8, c51);\n        for (int r = 0; r < mr; r++) {\n            float *p = C + r * ldc;\n            if (first)\n                for (int j = 0; j < nr; j++) p[j] = t[r][j];\n            else\n                for (int j = 0; j < nr; j++) p[j] += t[r][j];\n        }\n    }\n}\n\nstatic void *amalloc(size_t bytes)\n{\n    bytes = (bytes + 63) & ~(size_t)63;\n    if (bytes == 0) bytes = 64;\n    return aligned_alloc(64, bytes);\n}\n\nvoid matmul(const float *A, const float *B, float *C, int n)\n{\n    if (n <= 0) return;\n    int np = (n + NR - 1) / NR;\n    float *Bp = amalloc((size_t)np * NR * KC * sizeof(float));\n\n    for (int kk = 0; kk < n; kk += KC) {\n        int kc = n - kk < KC ? n - kk : KC;\n        int first = (kk == 0);\n\n        #pragma omp parallel\n        {\n            #pragma omp for schedule(static)\n            for (int jp = 0; jp < np; jp++) {\n                float *dst = Bp + (size_t)jp * NR * kc;\n                int j0 = jp * NR;\n                int jw = n - j0 < NR ? n - j0 : NR;\n                for (int k = 0; k < kc; k++) {\n                    const float *src = B + (size_t)(kk + k) * n + j0;\n                    float *d = dst + k * NR;\n                    int j = 0;\n                    for (; j < jw; j++) d[j] = src[j];\n                    for (; j < NR; j++) d[j] = 0.0f;\n                }\n            }\n\n            float *Ap = amalloc((size_t)MC * KC * sizeof(float));\n\n            #pragma omp for schedule(dynamic)\n            for (int ib = 0; ib < n; ib += MC) {\n                int mc = n - ib < MC ? n - ib : MC;\n                int nt = (mc + MR - 1) / MR;\n\n                for (int t = 0; t < nt; t++) {\n                    float *dst = Ap + (size_t)t * MR * kc;\n                    for (int r = 0; r < MR; r++) {\n                        int row = ib + t * MR + r;\n                        if (row < n) {\n                            const float *src = A + (size_t)row * n + kk;\n                            for (int k = 0; k < kc; k++) dst[k * MR + r] = src[k];\n                        } else {\n                            for (int k = 0; k < kc; k++) dst[k * MR + r] = 0.0f;\n                        }\n                    }\n                }\n\n                for (int jp = 0; jp < np; jp++) {\n                    int j0 = jp * NR;\n                    int nr = n - j0 < NR ? n - j0 : NR;\n                    const float *bp = Bp + (size_t)jp * NR * kc;\n                    for (int t = 0; t < nt; t++) {\n                        int i0 = ib + t * MR;\n                        int mr = n - i0 < MR ? n - i0 : MR;\n                        kernel(Ap + (size_t)t * MR * kc, bp, kc,\n                               C + (size_t)i0 * n + j0, n, mr, nr, first);\n                    }\n                }\n            }\n\n            free(Ap);\n        }\n    }\n\n    free(Bp);\n}\n```\n\nFLAGS: -O3 -march=native -fopenmp -funroll-loops",
+  "session_id": "91ec334b-9399-4cbf-a76f-15e081a22fcf",
+  "cost_usd": 0.08189039999999999,
+  "duration_s": 35.136,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 3112,
+    "output_tokens": 4063,
+    "output_tokens_details": {
+      "thinking_tokens": 1874
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 4063,
+        "cache_read_input_tokens": 3112,
+        "cache_creation_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 4063,
+      "cacheReadInputTokens": 3112,
+      "cacheCreationInputTokens": 0,
+      "webSearchRequests": 0,
+      "costUSD": 0.08189039999999999,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 1874,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "trial": 1
+}

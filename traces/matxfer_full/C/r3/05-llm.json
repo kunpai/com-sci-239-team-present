@@ -1,0 +1,67 @@
+{
+  "arm": "C",
+  "repeat": 3,
+  "step": 5,
+  "kind": "llm",
+  "memory": [
+    "Matmul task notes (n\u22481000, float, unknown Linux CPU with AVX-512):\n\n- **Baseline:** Goto-style AVX2 6\u00d716 kernel, packed A/B, KC=256, dynamic OpenMP items: 7.5 ms (~270 GFLOP/s).\n- **Best (Attempt 5): 6.4 ms.** 12\u00d732 zmm kernel, `-mprefer-vector-width=512`, KC=256. A and B packed once, one barrier. Dynamic items are MC\u00d7NCG tiles over full K, with \u22653\u00d7nt items. Only the AVX-512 switch gave a real gain (~15%).\n- **No help (7.5\u20137.6 ms):** static buffers, shared A packing, double buffering, 2D static thread grids, full-K items on AVX2. Blocking variations plateau, so the limit is likely kernel throughput or noise.\n- **Regressions:** KC=384 with NR=32 (B panel overflows L1): 9.5 ms. KC=192: 6.9 ms. Unaligned kc=250: 6.8 ms. MR=8: 6.9 ms. Noinline edge kernel: 7.8 ms (probably noise).\n- **Neutral:** physical-core threads via sysfs SMT width: 6.7 ms.\n- **Noise:** ~\u00b110%; differences under 0.5 ms aren't meaningful.\n- **Next steps:**\n  - Resubmit Attempt 5 verbatim to measure noise.\n  - Try a 14\u00d732 kernel; check for spills.\n  - Pack B lazily per item to overlap with compute; replace the stride-n A gather with a vector transpose.\n  - Add `-falign-loops=64`.\n  - Prefetch next A/B micro-panels.",
+    "**Lesson:** The compiler rejected `-mprefer-vector-width=512`, an x86-only flag. The build machine is evidently not the x86/AVX-512 system the notes assumed, possibly AArch64 or an older gcc. Never rely on target-specific flags. Use only portable flags: `-O3 -march=native -fopenmp`, and possibly `-ffast-math`. Let the code adapt through preprocessor checks, with branches for `__AVX512F__`, `__AVX2__` and `__ARM_NEON` (4-wide vectors, e.g. an 8\u00d712 kernel) plus a generic fallback. Treat the notes' assumptions about the CPU as unverified."
+  ],
+  "role": "generate",
+  "prompt": "You are optimizing a C function for speed.\n\nWrite a single C source file that defines\n\n    void matmul(const float *A, const float *B, float *C, int n);\n\nwhich computes C = A * B for square n x n matrices of single-precision (float) values stored in row-major order, so element (i, j) of A is A[i*n + j]. The three buffers do not overlap. C is not initialized: your function must write every element of C.\n\nRequirements:\n- The result must be correct for every positive n, not only for convenient sizes. Results are checked against a reference with a relative tolerance of about 1e-3, so reordering floating-point sums is fine.\n- The benchmark runs large matrices (around a thousand rows and columns) and reports the best of several runs, so optimize for large n.\n- The file is compiled with gcc and linked, together with a fixed benchmark harness that calls matmul, against the C math library and pthreads. Do not define main. Only the C standard library, libm, pthreads and OpenMP are available.\n- You choose the compiler flags. They are passed to gcc as given (for example -O3 or -fopenmp). Flags that set the output file, add include or library paths, or pass options through to the linker are rejected.\n- The program is built and run inside a Linux container, not on the machine you are running on. The CPU is not disclosed.\n- Optimize for speed on the machine this runs on.\n\nReply format. Reply with the complete source file in exactly one fenced block:\n\n```c\n...\n```\n\nfollowed on its own line by the compiler flags, for example:\n\nFLAGS: -O3 -march=native\n\nDo not write any other code block or any other line starting with FLAGS:.\n\nMemory from earlier sessions:\n- Matmul task notes (n\u22481000, float, unknown Linux CPU with AVX-512):\n\n- **Baseline:** Goto-style AVX2 6\u00d716 kernel, packed A/B, KC=256, dynamic OpenMP items: 7.5 ms (~270 GFLOP/s).\n- **Best (Attempt 5): 6.4 ms.** 12\u00d732 zmm kernel, `-mprefer-vector-width=512`, KC=256. A and B packed once, one barrier. Dynamic items are MC\u00d7NCG tiles over full K, with \u22653\u00d7nt items. Only the AVX-512 switch gave a real gain (~15%).\n- **No help (7.5\u20137.6 ms):** static buffers, shared A packing, double buffering, 2D static thread grids, full-K items on AVX2. Blocking variations plateau, so the limit is likely kernel throughput or noise.\n- **Regressions:** KC=384 with NR=32 (B panel overflows L1): 9.5 ms. KC=192: 6.9 ms. Unaligned kc=250: 6.8 ms. MR=8: 6.9 ms. Noinline edge kernel: 7.8 ms (probably noise).\n- **Neutral:** physical-core threads via sysfs SMT width: 6.7 ms.\n- **Noise:** ~\u00b110%; differences under 0.5 ms aren't meaningful.\n- **Next steps:**\n  - Resubmit Attempt 5 verbatim to measure noise.\n  - Try a 14\u00d732 kernel; check for spills.\n  - Pack B lazily per item to overlap with compute; replace the stride-n A gather with a vector transpose.\n  - Add `-falign-loops=64`.\n  - Prefetch next A/B micro-panels.\n- **Lesson:** The compiler rejected `-mprefer-vector-width=512`, an x86-only flag. The build machine is evidently not the x86/AVX-512 system the notes assumed, possibly AArch64 or an older gcc. Never rely on target-specific flags. Use only portable flags: `-O3 -march=native -fopenmp`, and possibly `-ffast-math`. Let the code adapt through preprocessor checks, with branches for `__AVX512F__`, `__AVX2__` and `__ARM_NEON` (4-wide vectors, e.g. an 8\u00d712 kernel) plus a generic fallback. Treat the notes' assumptions about the CPU as unverified.\n",
+  "text": "Unverified sketch: I haven't compiled or run it. Your notes say the build machine may not be x86. So the file uses GCC vector extensions and picks the vector width with preprocessor checks: AVX-512 gets a 12\u00d732 kernel, AVX/AVX2 6\u00d716, NEON 8\u00d712, and anything else a generic 4-wide kernel. The flags are portable ones only.\n\n```c\n#include <stdlib.h>\n#include <string.h>\n#ifdef _OPENMP\n#include <omp.h>\n#endif\n\n#if defined(__AVX512F__)\n#define VW 16\n#define MR 12\n#define NV 2\n#elif defined(__AVX__)\n#define VW 8\n#define MR 6\n#define NV 2\n#elif defined(__ARM_NEON) || defined(__aarch64__)\n#define VW 4\n#define MR 8\n#define NV 3\n#else\n#define VW 4\n#define MR 4\n#define NV 2\n#endif\n\n#define NR (VW * NV)\n#define KC 256\n\ntypedef float vf __attribute__((vector_size(VW * 4), aligned(VW * 4)));\ntypedef float vfu __attribute__((vector_size(VW * 4), aligned(4), may_alias));\n\nstatic inline vf bcast(float x)\n{\n    vf v;\n    for (int i = 0; i < VW; i++) v[i] = x;\n    return v;\n}\n\nstatic inline void kernel(int kc, const float *restrict a, const float *restrict b,\n                          float *restrict c, int ldc, int mr, int nr, int accum)\n{\n    vf acc[MR][NV];\n#pragma GCC unroll 16\n    for (int i = 0; i < MR; i++)\n#pragma GCC unroll 4\n        for (int j = 0; j < NV; j++) acc[i][j] = bcast(0.0f);\n\n    for (int p = 0; p < kc; p++) {\n        vf bv[NV];\n#pragma GCC unroll 4\n        for (int j = 0; j < NV; j++) bv[j] = *(const vf *)(b + p * NR + j * VW);\n#pragma GCC unroll 16\n        for (int i = 0; i < MR; i++) {\n            vf av = bcast(a[p * MR + i]);\n#pragma GCC unroll 4\n            for (int j = 0; j < NV; j++) acc[i][j] += av * bv[j];\n        }\n    }\n\n    if (mr == MR && nr == NR) {\n        if (accum) {\n#pragma GCC unroll 16\n            for (int i = 0; i < MR; i++)\n#pragma GCC unroll 4\n                for (int j = 0; j < NV; j++) {\n                    vfu *d = (vfu *)(c + (size_t)i * ldc + j * VW);\n                    *d = *d + acc[i][j];\n                }\n        } else {\n#pragma GCC unroll 16\n            for (int i = 0; i < MR; i++)\n#pragma GCC unroll 4\n                for (int j = 0; j < NV; j++)\n                    *(vfu *)(c + (size_t)i * ldc + j * VW) = acc[i][j];\n        }\n    } else {\n        float t[MR * NR] __attribute__((aligned(64)));\n        for (int i = 0; i < MR; i++)\n            for (int j = 0; j < NV; j++)\n                *(vf *)(t + i * NR + j * VW) = acc[i][j];\n        for (int i = 0; i < mr; i++) {\n            float *d = c + (size_t)i * ldc;\n            if (accum)\n                for (int j = 0; j < nr; j++) d[j] += t[i * NR + j];\n            else\n                for (int j = 0; j < nr; j++) d[j] = t[i * NR + j];\n        }\n    }\n}\n\nstatic void pack_a(const float *A, int n, int i0, int p0, int kc, float *dst)\n{\n    int mr = n - i0 < MR ? n - i0 : MR;\n    for (int r = 0; r < mr; r++) {\n        const float *s = A + (size_t)(i0 + r) * n + p0;\n        for (int p = 0; p < kc; p++) dst[p * MR + r] = s[p];\n    }\n    for (int r = mr; r < MR; r++)\n        for (int p = 0; p < kc; p++) dst[p * MR + r] = 0.0f;\n}\n\nstatic void pack_b(const float *B, int n, int j0, int p0, int kc, float *dst)\n{\n    int nr = n - j0 < NR ? n - j0 : NR;\n    for (int p = 0; p < kc; p++) {\n        const float *s = B + (size_t)(p0 + p) * n + j0;\n        float *d = dst + p * NR;\n        int j = 0;\n        for (; j < nr; j++) d[j] = s[j];\n        for (; j < NR; j++) d[j] = 0.0f;\n    }\n}\n\nstatic void *alloc64(size_t bytes)\n{\n    bytes = (bytes + 63) & ~(size_t)63;\n    if (bytes == 0) bytes = 64;\n    return aligned_alloc(64, bytes);\n}\n\nvoid matmul(const float *A, const float *B, float *C, int n)\n{\n    if (n <= 0) return;\n\n    int nkb = (n + KC - 1) / KC;\n    int MP = (n + MR - 1) / MR;\n    int NP = (n + NR - 1) / NR;\n\n    float *Ap = alloc64((size_t)nkb * MP * KC * MR * sizeof(float));\n    float *Bp = alloc64((size_t)nkb * NP * KC * NR * sizeof(float));\n\n    int nt = 1;\n#ifdef _OPENMP\n    nt = omp_get_max_threads();\n#endif\n\n    int mcp = 96 / MR;\n    if (mcp < 1) mcp = 1;\n    int ncp = 256 / NR;\n    if (ncp < 1) ncp = 1;\n    for (;;) {\n        long items = (long)((MP + mcp - 1) / mcp) * ((NP + ncp - 1) / ncp);\n        if (items >= 3L * nt || (mcp == 1 && ncp == 1)) break;\n        if (ncp >= mcp && ncp > 1) ncp = (ncp + 1) / 2;\n        else mcp = (mcp + 1) / 2;\n    }\n    int mblocks = (MP + mcp - 1) / mcp;\n    int nblocks = (NP + ncp - 1) / ncp;\n    int nitems = mblocks * nblocks;\n\n#pragma omp parallel\n    {\n#pragma omp for schedule(static) nowait\n        for (int t = 0; t < nkb * MP; t++) {\n            int kb = t / MP, ip = t % MP;\n            int p0 = kb * KC;\n            int kc = n - p0 < KC ? n - p0 : KC;\n            pack_a(A, n, ip * MR, p0, kc, Ap + (size_t)t * KC * MR);\n        }\n#pragma omp for schedule(static)\n        for (int t = 0; t < nkb * NP; t++) {\n            int kb = t / NP, jp = t % NP;\n            int p0 = kb * KC;\n            int kc = n - p0 < KC ? n - p0 : KC;\n            pack_b(B, n, jp * NR, p0, kc, Bp + (size_t)t * KC * NR);\n        }\n\n#pragma omp for schedule(dynamic, 1)\n        for (int it = 0; it < nitems; it++) {\n            int mb = it % mblocks, nb = it / mblocks;\n            int ip0 = mb * mcp, ip1 = ip0 + mcp < MP ? ip0 + mcp : MP;\n            int jp0 = nb * ncp, jp1 = jp0 + ncp < NP ? jp0 + ncp : NP;\n            for (int kb = 0; kb < nkb; kb++) {\n                int p0 = kb * KC;\n                int kc = n - p0 < KC ? n - p0 : KC;\n                for (int jp = jp0; jp < jp1; jp++) {\n                    int j0 = jp * NR;\n                    int nr = n - j0 < NR ? n - j0 : NR;\n                    const float *bp = Bp + ((size_t)kb * NP + jp) * KC * NR;\n                    for (int ip = ip0; ip < ip1; ip++) {\n                        int i0 = ip * MR;\n                        int mr = n - i0 < MR ? n - i0 : MR;\n                        const float *ap = Ap + ((size_t)kb * MP + ip) * KC * MR;\n                        kernel(kc, ap, bp, C + (size_t)i0 * n + j0, n, mr, nr, kb > 0);\n                    }\n                }\n            }\n        }\n    }\n\n    free(Ap);\n    free(Bp);\n}\n```\n\nFLAGS: -O3 -march=native -fopenmp -ffast-math",
+  "session_id": "5bdde5bd-27e4-4c72-a42f-b5d7e926669d",
+  "cost_usd": 0.1341174,
+  "duration_s": 51.98,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 1764,
+    "cache_read_input_tokens": 2187,
+    "output_tokens": 5978,
+    "output_tokens_details": {
+      "thinking_tokens": 2965
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 1764,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 5978,
+        "cache_read_input_tokens": 2187,
+        "cache_creation_input_tokens": 1764,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1764
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 5978,
+      "cacheReadInputTokens": 2187,
+      "cacheCreationInputTokens": 1764,
+      "webSearchRequests": 0,
+      "costUSD": 0.1341174,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 2965,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "trial": 2
+}

@@ -1,0 +1,8 @@
+{
+  "arm": "run",
+  "repeat": 1,
+  "step": 1,
+  "kind": "llm_error",
+  "memory": [],
+  "error": "claude failed after 2 attempts: claude exited 1: ''"
+}

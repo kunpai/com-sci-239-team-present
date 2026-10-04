@@ -1,0 +1,11 @@
+{
+  "arm": "C",
+  "repeat": 3,
+  "step": 4,
+  "kind": "memory_update",
+  "memory": [
+    "Matmul task notes (n\u22481000, float, unknown Linux CPU with AVX-512):\n\n- **Baseline:** Goto-style AVX2 6\u00d716 kernel, packed A/B, KC=256, dynamic OpenMP items: 7.5 ms (~270 GFLOP/s).\n- **Best (Attempt 5): 6.4 ms.** 12\u00d732 zmm kernel, `-mprefer-vector-width=512`, KC=256. A and B packed once, one barrier. Dynamic items are MC\u00d7NCG tiles over full K, with \u22653\u00d7nt items. Only the AVX-512 switch gave a real gain (~15%).\n- **No help (7.5\u20137.6 ms):** static buffers, shared A packing, double buffering, 2D static thread grids, full-K items on AVX2. Blocking variations plateau, so the limit is likely kernel throughput or noise.\n- **Regressions:** KC=384 with NR=32 (B panel overflows L1): 9.5 ms. KC=192: 6.9 ms. Unaligned kc=250: 6.8 ms. MR=8: 6.9 ms. Noinline edge kernel: 7.8 ms (probably noise).\n- **Neutral:** physical-core threads via sysfs SMT width: 6.7 ms.\n- **Noise:** ~\u00b110%; differences under 0.5 ms aren't meaningful.\n- **Next steps:**\n  - Resubmit Attempt 5 verbatim to measure noise.\n  - Try a 14\u00d732 kernel; check for spills.\n  - Pack B lazily per item to overlap with compute; replace the stride-n A gather with a vector transpose.\n  - Add `-falign-loops=64`.\n  - Prefetch next A/B micro-panels."
+  ],
+  "trial": 1,
+  "lesson": "**Lesson:** The compiler rejected `-mprefer-vector-width=512`, an x86-only flag. The build machine is evidently not the x86/AVX-512 system the notes assumed, possibly AArch64 or an older gcc. Never rely on target-specific flags. Use only portable flags: `-O3 -march=native -fopenmp`, and possibly `-ffast-math`. Let the code adapt through preprocessor checks, with branches for `__AVX512F__`, `__AVX2__` and `__ARM_NEON` (4-wide vectors, e.g. an 8\u00d712 kernel) plus a generic fallback. Treat the notes' assumptions about the CPU as unverified."
+}

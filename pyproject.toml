@@ -1,0 +1,23 @@
+[project]
+name = "matxfer"
+version = "0.1.0"
+description = "Self-Refine on x86, Reflexion-style memory transfer to arm32"
+requires-python = ">=3.11"
+dependencies = ["matplotlib>=3.8"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.11"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "docker: needs a running Docker daemon",
+    "llm: needs the claude CLI and spends tokens",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+ignore_missing_imports = true

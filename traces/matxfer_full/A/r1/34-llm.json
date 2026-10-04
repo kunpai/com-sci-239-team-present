@@ -1,0 +1,63 @@
+{
+  "arm": "A",
+  "repeat": 1,
+  "step": 34,
+  "kind": "llm",
+  "memory": [],
+  "role": "memory_shorten",
+  "prompt": "Shorten the following notes to at most 200 words, keeping the most useful facts. Reply with the shortened notes only.\n\n**Notes for future self (matmul, n\u22481000, unknown CPU)**\n\n- **Best so far: attempt 2, 8.0 ms (~250 GFLOP/s).**\n  - Packed A and B, both persistent in static buffers that grow only when n increases.\n  - 12\u00d732 AVX-512 / 6\u00d716 AVX2 kernel, KC=256.\n  - `collapse(2)` dynamic tasks, p-outer/q-inner loop order.\n  - Flags: `-O3 -march=native -fopenmp -ffast-math -funroll-loops`.\n- **What helped:**\n  - Persistent buffers instead of a fresh malloc per call: 10.4 \u2192 8.0 ms. This was the biggest win, since it avoids page faults.\n  - Packing A only once.\n  - KC around 256.\n- **What hurt or did nothing:**\n  - KC=192 (more C passes): 9.5 ms.\n  - KC=504: 8.5 ms.\n  - KC=n: 8.1 ms.\n  - Thread-derived tiny tasks: 8.7 ms.\n  - Static contiguous task split with per-thread A pack: 10.2 ms.\n  - Unpacked A: 9.3 ms.\n  - Per-task redundant A packing: 9.3 ms.\n  - Vectorized tr8 transpose and merged pack loop: no gain (8.5\u20138.7 ms). Packing is not the bottleneck.\n  - Prefetch tweaks: neutral or slightly negative.\n- **Untested ideas:**\n  - Check whether the machine is Zen4 (double-pumped 512-bit). Try `-mprefer-vector-width=256`, or force the 6\u00d716 AVX2 path.\n  - Pin one task per ib strip that loops over all jb, with A packed once per kb, while keeping attempt 2's packing.\n  - Overlap B packing with compute: pack the next kb slice while computing the current one.\n  - Try the 14\u00d732 or 8\u00d748 tile.\n  - Try `OMP_PROC_BIND`-style affinity via `proc_bind(close)`.\n- **Advice:** change one variable at a time from attempt 2. Noise is about \u00b10.5 ms.\n",
+  "text": "**Matmul notes (n\u22481000, unknown CPU)**\n\n**Best: attempt 2, 8.0 ms (~250 GFLOP/s)**\n- Packed A and B in persistent static buffers (grow only when n increases)\n- 12\u00d732 AVX-512 / 6\u00d716 AVX2 kernel, KC=256\n- `collapse(2)` dynamic tasks, p-outer/q-inner\n- Flags: `-O3 -march=native -fopenmp -ffast-math -funroll-loops`\n\n**Helped:**\n- Persistent buffers vs. per-call malloc: 10.4 \u2192 8.0 ms (biggest win; avoids page faults)\n- Packing A once\n- KC\u2248256\n\n**Hurt/neutral:**\n- KC=192: 9.5; KC=504: 8.5; KC=n: 8.1 ms\n- Thread-derived tiny tasks: 8.7 ms\n- Static contiguous split + per-thread A pack: 10.2 ms\n- Unpacked A or per-task redundant A pack: 9.3 ms\n- Vectorized tr8 transpose/merged pack loop: 8.5\u20138.7 ms (packing isn't the bottleneck)\n- Prefetch tweaks: neutral to slightly worse\n\n**Untested:**\n- If Zen4 (double-pumped 512-bit), try `-mprefer-vector-width=256` or force 6\u00d716 AVX2\n- One task per ib strip looping all jb, A packed once per kb\n- Overlap packing next kb slice of B with compute\n- 14\u00d732 or 8\u00d748 tile\n- `proc_bind(close)` affinity\n\n**Advice:** Change one variable at a time from attempt 2; noise \u2248 \u00b10.5 ms.",
+  "session_id": "cabab226-9e95-442d-b59d-98291bf5ff2a",
+  "cost_usd": 0.021945399999999997,
+  "duration_s": 5.599,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 1175,
+    "cache_read_input_tokens": 2187,
+    "output_tokens": 605,
+    "output_tokens_details": {
+      "thinking_tokens": 19
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 1175,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 605,
+        "cache_read_input_tokens": 2187,
+        "cache_creation_input_tokens": 1175,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 1175
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 605,
+      "cacheReadInputTokens": 2187,
+      "cacheCreationInputTokens": 1175,
+      "webSearchRequests": 0,
+      "costUSD": 0.021945399999999997,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 19,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  }
+}
