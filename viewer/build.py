@@ -18,6 +18,8 @@ DEV_MARKERS = ("calib", "quick")
 PLATFORM_BY_ARM = {"A": "amd64", "B": "armv7", "C": "armv7"}
 MEMORY_HEADER = "Memory from earlier sessions:\n"
 PLACEHOLDER = "/*__DATA__*/null"
+INTERN_MIN_CHARS = 256  # strings at least this long go into the shared table
+TEXTS_KEY, DATA_KEY, REF_KEY = "$texts", "$data", "$t"
 _STEP_FILE = re.compile(r"^(\d+)-([A-Za-z_]+)\.json$")
 _REPEAT_DIR = re.compile(r"^r(\d+)$")
 
@@ -35,6 +37,9 @@ def _read_steps(directory: Path) -> list[Step]:
             data = json.loads(path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("skipping unreadable trace %s: %s", path, exc)
+            continue
+        if not isinstance(data, dict):
+            logger.warning("skipping %s: step files must hold a JSON object", path)
             continue
         data["_file"] = path.name
         data.setdefault("step", int(match.group(1)))
@@ -103,8 +108,10 @@ def _arm_a(directory: Path) -> dict[str, Any] | None:
         )
     memory_file = directory / "memory.md"
     by_role = {s.get("role"): s for s in steps if s["kind"] == "llm"}
+    reused = next((s for s in steps if s["kind"] == "memory_reused"), None)
     return {
         "platform_inferred": any("platform" not in s for s in sandbox.values()),
+        "reused_from": reused.get("source") if reused else None,
         "attempts": attempts,
         "memory_md": memory_file.read_text() if memory_file.exists() else None,
         "memory_reflection": _llm_meta(by_role.get("memory_reflection")),
@@ -153,6 +160,18 @@ def _arm_trials(directory: Path, arm: str) -> dict[str, Any] | None:
     }
 
 
+def _transcript(directory: Path) -> list[Step]:
+    """Every step of one arm directory exactly as traced, in order (unknown kinds included)."""
+    if not directory.is_dir():
+        return []
+    entries = []
+    for step in _read_steps(directory):
+        entry = {k: v for k, v in step.items() if k != "_file"}
+        entry["file"] = step["_file"]
+        entries.append(entry)
+    return entries
+
+
 def _errors(directory: Path) -> list[dict[str, str]]:
     if not directory.is_dir():
         return []
@@ -199,6 +218,7 @@ def load_run(run_dir: Path) -> dict[str, Any]:
                 "B": _arm_trials(run_dir / "B" / sub, "B"),
                 "C": _arm_trials(run_dir / "C" / sub, "C"),
                 "errors": _errors(run_dir / "run" / sub),
+                "transcript": {arm: _transcript(run_dir / arm / sub) for arm in ("A", "B", "C")},
             }
         )
     cost, calls = 0.0, 0
@@ -250,11 +270,55 @@ def _safe_json(data: Any) -> str:
     return text
 
 
+def intern_texts(data: Any) -> dict[str, Any]:
+    """Move every long string into one shared table, leaving `{"$t": index}` references.
+
+    The transcript repeats prompts that already sit in the normalized fields; interning stores
+    each distinct long string once, so the page does not carry them twice.
+    """
+    index: dict[str, int] = {}
+    texts: list[str] = []
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, str):
+            if len(node) < INTERN_MIN_CHARS:
+                return node
+            if node not in index:
+                index[node] = len(texts)
+                texts.append(node)
+            return {REF_KEY: index[node]}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        if isinstance(node, dict):
+            if REF_KEY in node:
+                raise ValueError(f"data contains a {REF_KEY!r} key, which is reserved for references")
+            return {key: walk(value) for key, value in node.items()}
+        return node
+
+    return {DATA_KEY: walk(data), TEXTS_KEY: texts}
+
+
+def restore_texts(wrapped: dict[str, Any]) -> Any:
+    """Inverse of `intern_texts`."""
+    texts = wrapped[TEXTS_KEY]
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        if isinstance(node, dict):
+            if set(node) == {REF_KEY}:
+                return texts[node[REF_KEY]]
+            return {key: walk(value) for key, value in node.items()}
+        return node
+
+    return walk(wrapped[DATA_KEY])
+
+
 def render_html(data: dict[str, Any], template: str) -> str:
-    """Inject `data` into the template at the data placeholder."""
+    """Inject `data` (long strings interned) into the template at the data placeholder."""
     if PLACEHOLDER not in template:
         raise ValueError(f"template has no {PLACEHOLDER!r} placeholder")
-    return template.replace(PLACEHOLDER, _safe_json(data))
+    return template.replace(PLACEHOLDER, _safe_json(intern_texts(data)))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

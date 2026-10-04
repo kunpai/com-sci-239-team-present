@@ -46,7 +46,7 @@ viewer/
   template.html            the UI (vanilla JS and CSS, no dependencies)
   index.html               generated; rebuild after every new run
   browser_check.js         scripted browser regression (optional, needs puppeteer-core)
-tests/                     102 tests (pytest); canned C sources live in tests/canned/
+tests/                     116 tests (pytest); canned C sources live in tests/canned/
 plan/                      design docs, implementation plans, and the progress ledger
 traces/                    one directory per run (see "Trace layout")
 ```
@@ -141,31 +141,37 @@ uv run python viewer/build.py                    # reads traces/, writes viewer/
 uv run python viewer/build.py --traces /path --out /path/index.html
 ```
 
-**Navigate it.** The overview shows the summary table and the three arm tiles. The chain view lays out A, B, and C side by side as step timelines; click a step to expand its prompt, reply, code (with a line diff against the previous attempt), flags, and measured result. The memory panel shows A's `memory.md` verbatim, the exact block that followed `Memory from earlier sessions:` in C's first prompt (the harness's double bullet and any hard clip are visible and flagged), and the memory in effect at each trial.
+**Navigate it.** The overview shows the summary table and the three arm tiles. Each chain has three views (tabs at the top): **Timeline**, **Memory**, and **Transcript**. The timeline lays out A, B, and C side by side as step timelines; click a step to expand its prompt, reply, code (with a line diff against the previous attempt), flags, and measured result. The memory panel shows A's `memory.md` verbatim, the exact block that followed `Memory from earlier sessions:` in C's first prompt (the harness's double bullet and any hard clip are visible and flagged), and the memory in effect at each trial.
 
 | Key | Action |
 |---|---|
 | `j` / `k` | next / previous step |
 | `]` / `[` | next / previous chain (repeat) |
 | `m` | toggle memory panel |
-| `f` | failures only |
+| `a` | toggle the transcript (all turns) |
+| `f` | failures only (timeline) |
 | `t` | toggle light and dark theme |
 | `Esc` | close the inspector drawer |
 
 Every view has a deep link, so a slide can point at an exact step. Calibration and quick runs are hidden by default (tick "dev runs" to show them).
 
 ```
-#/<run>                               run overview
-#/<run>/<repeat>/timeline             chain view
-#/<run>/<repeat>/timeline/<arm>/<i>   one step, expanded (arm is A, B, or C; i counts from 0)
-#/<run>/<repeat>/memory               memory panel
+#/<run>                                run overview
+#/<run>/<repeat>/timeline              chain view
+#/<run>/<repeat>/timeline/<arm>/<i>    one step, expanded (arm is A, B, or C; i counts from 0)
+#/<run>/<repeat>/memory                memory panel
+#/<run>/<repeat>/transcript            every trace step of the chain, in order
+#/<run>/<repeat>/transcript/<arm>      the same, one arm only
+#/<run>/<repeat>/transcript/<arm>/<n>  one step, expanded (n is the step number in the file name)
 ```
 
-For example, `index.html#/matxfer_full2/1/timeline/C/0` opens the first C trial of repeat 1 (the compile failure on `immintrin.h`), and `index.html#/matxfer_full2/1/memory` shows the memory panel for that chain. Query parameters go before the hash: `?theme=light` or `?theme=dark`, `?fail=1` for failures only, `?dev=1` to show dev runs.
+**Transcript.** The transcript is the complete record of one chain: every numbered trace file, in order, with nothing paired or summarized. A Claude call shows the full prompt and the full reply (with duration, cost, and tokens), a sandbox run shows the code (with a diff against the previous run), flags, and measured result, and a memory update shows the lesson as stored. Because it is the raw trace, it also contains what the timeline leaves out: the untrimmed lesson reply (before the word-cap clip), the memory-reflection and shorten calls, and any step kind the viewer does not know (shown as raw JSON). Controls: filter by arm, tick Claude calls, sandbox runs, or memory and other events on and off, search the text of the chain, expand or collapse all turns, and download what is shown as Markdown or JSON (`<run>_chain<k>_transcript.md`). Long prompts scroll in place, and the `open` button on each prompt or reply sends it to the inspector drawer.
+
+For example, `index.html#/matxfer_full2/1/timeline/C/0` opens the first C trial of repeat 1 (the compile failure on `immintrin.h`), `index.html#/matxfer_full2/1/memory` shows the memory panel for that chain, and `index.html#/matxfer_full2/1/transcript/C` lists every turn of arm C in that chain. Query parameters go before the hash: `?theme=light` or `?theme=dark`, `?fail=1` for failures only, `?dev=1` to show dev runs.
 
 **Safety.** Trace text is untrusted model output. The UI renders it only through DOM text nodes (never `innerHTML`), and the embedded JSON escapes `&`, `<`, `>`, U+2028, and U+2029, so a `</script>` inside a reply cannot break the page. `viewer/browser_check.js` includes a hostile-text case that guards this.
 
-**Browser regression (optional).** `viewer/browser_check.js` drives Google Chrome through the views above (29 checks). It needs `puppeteer-core` and a hostile-text fixture page:
+**Browser regression (optional).** `viewer/browser_check.js` drives Google Chrome through the views above (69 checks). It needs `puppeteer-core` and a hostile-text fixture page:
 
 ```bash
 npm i puppeteer-core
@@ -175,7 +181,7 @@ NODE_PATH=$PWD/node_modules node viewer/browser_check.js "$PWD" /tmp/shots /path
 ## Tests
 
 ```bash
-uv run pytest -q -m "not llm"      # 102 tests; the sandbox tests need Docker
+uv run pytest -q -m "not llm"      # 116 tests; the sandbox tests need Docker
 uv run pytest -q -m llm            # live Claude calls; spends tokens
 uv run ruff check . && uv run mypy src run.py
 ```
@@ -188,6 +194,7 @@ The suite uses a scripted `FakeLLM` and canned C sources (wrong result, infinite
 - **Prompt and harness drift:** `matxfer_full` predates the harness fixes (CPU pinning, the odd-size check, Docker error attribution) and is marked "older harness" in the viewer. `matxfer_full2` and `matxfer_generic` use the fixed harness.
 - **Generic ablation:** `matxfer_generic` completed one of three repeats. Two aborted when a Claude call stalled past the 300 s timeout. The retry backoff added since then addresses this, but those traces predate it.
 - **Memory text:** A's memories sometimes assert AVX-512 behavior that cannot occur under Rosetta, so the narrative inside a memory is not reliable evidence about the hardware. The harness prefixes each entry with `- `, which produces a double bullet in C's memory block; the viewer shows it as is.
+- **Runs that reuse memory:** in a run made with `--reuse-memory-from`, arm A was not re-run, so its column shows the reused `memory.md` and a "not re-run" note instead of attempts, and its transcript is the single `memory_reused` event.
 - **Timing artifacts:** buffers are shared across timing repetitions, and emulated timings carry 10 to 20 percent noise.
 - **Deviations from the papers:** A's feedback sees measured results (closer to a grounded evaluator than pure self-feedback), 10 rounds exceeds Self-Refine's 4, the final candidate is the best correct one rather than the last, and the memory is written from a success whereas Reflexion writes reflections from failures.
 

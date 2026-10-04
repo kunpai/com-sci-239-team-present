@@ -10,7 +10,7 @@ from src.llm import LLMError, LLMReply
 from src.prompts import load_task
 from src.sandbox import AMD64, ARMV7
 from tests.conftest import FakeLLM, code_reply, fail, ok, scripted_run
-from viewer.build import build_data, load_run, render_html
+from viewer.build import build_data, load_run, render_html, restore_texts
 
 NAIVE = {"amd64": 100.0, "armv7": 900.0}
 MEM = "memory: use avx2 intrinsics"
@@ -136,4 +136,4 @@ def test_render_html_cannot_be_broken_out_of_by_trace_text() -> None:
     html = render_html(data, template)
     assert html.count("</script>") == 2 and "<img" not in html and "<!--" not in html
     match = re.search(r'<script id="d" type="application/json">(.*?)</script>', html, re.DOTALL)
-    assert match is not None and json.loads(match.group(1)) == data
+    assert match is not None and restore_texts(json.loads(match.group(1))) == data

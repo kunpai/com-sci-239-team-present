@@ -156,6 +156,22 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .index-card.lesson { border-top-color: var(--warn); }
 .mem-meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
 
+/* transcript */
+.tx-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 12px; margin: 0 0 16px; background: var(--panel); border: 1px solid var(--line); box-shadow: 2px 2px 0 var(--shadow); font-size: 12.5px; }
+.tx-bar label { display: flex; gap: 5px; align-items: center; cursor: pointer; color: var(--muted); }
+.tx-bar input[type="search"] { padding: 4px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--ink); font: 12.5px var(--mono); min-width: 230px; }
+.tx-stats { font: 12px var(--mono); color: var(--muted); margin-left: auto; }
+.tx-arm { margin: 0 0 30px; }
+.turn-no { font: 600 12px var(--mono); color: var(--muted); margin-right: 8px; }
+.kind { padding: 1px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel2); font: 600 11px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-right: 6px; }
+.kind.llm { color: var(--arm); border-color: var(--arm); }
+.preview { grid-column: 1 / -1; color: var(--muted); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bubble { margin-top: 10px; border: 1px solid var(--line); background: var(--panel2); border-left: 4px solid var(--line); }
+.bubble.reply { background: var(--panel); border-left-color: var(--arm); }
+.bubble header { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 4px 10px; border-bottom: 1px solid var(--rule); font: 700 10.5px var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.bubble header span:last-child { text-transform: none; letter-spacing: 0; font: 11.5px var(--mono); }
+.bubble pre { padding: 8px 10px; max-height: 380px; overflow: auto; }
+
 /* drawer */
 #scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .35); z-index: 30; }
 #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(780px, 100vw); z-index: 40; display: flex; flex-direction: column;
@@ -203,7 +219,20 @@ kbd { font: 11px var(--mono); padding: 1px 6px; border: 1px solid var(--line); b
 'use strict';
 
 /* ---------- data + tiny DOM helpers (all trace text goes through text nodes, never innerHTML) ---------- */
-const DATA = JSON.parse(document.getElementById('data').textContent) || { runs: [] };
+function restore(raw) {
+  // build.py moves long strings into one shared table and leaves {"$t": index} in their place
+  if (!raw || !Array.isArray(raw.$texts)) return raw || { runs: [] };
+  const texts = raw.$texts;
+  const fix = (v) => {
+    if (!v || typeof v !== 'object') return v;
+    const keys = Object.keys(v);
+    if (!Array.isArray(v) && keys.length === 1 && keys[0] === '$t') return texts[v.$t];
+    if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = fix(v[i]); } else { for (const k of keys) v[k] = fix(v[k]); }
+    return v;
+  };
+  return fix(raw.$data) || { runs: [] };
+}
+const DATA = restore(JSON.parse(document.getElementById('data').textContent));
 const RUNS = DATA.runs || [];
 const ARMS = {
   A: { name: 'Self-Refine', where: 'amd64', blurb: 'refines for 10 rounds, then writes memory.md' },
@@ -254,7 +283,7 @@ function parseHash() {
   return {
     run: p[0] || null,
     repeat: p[1] && /^\d+$/.test(p[1]) ? Number(p[1]) : null,
-    view: p[2] === 'memory' ? 'memory' : 'timeline',
+    view: p[2] === 'memory' ? 'memory' : p[2] === 'transcript' ? 'transcript' : 'timeline',
     arm: ['A', 'B', 'C'].includes(p[3]) ? p[3] : null,
     idx: p[4] != null && /^\d+$/.test(p[4]) ? Number(p[4]) : null,
   };
@@ -389,13 +418,14 @@ function resultBlock(res) {
 const noteBlock = (title, text) => h('div', { class: 'block' }, h('h4', null, title), h('div', { class: 'note' }, h('pre', null, text)));
 
 /* ---------- step cards (body is built lazily on first open) ---------- */
-function card({ key, arm, title, sub, res, flags, body, idx }) {
-  const bad = !isOk(res);
+function card({ key, arm, title, sub, res, flags, body, idx, meta, preview, num }) {
+  const bad = res ? !isOk(res) : false;
   const art = h('article', { class: 'card rise' + (bad ? ' fail' : ''), 'data-key': key, 'data-open': 'false', style: `--i:${idx % 14}` });
   const head = h('button', { class: 'card-head', type: 'button', 'aria-expanded': 'false' },
-    h('span', { class: 'ttl' }, title, sub ? h('small', null, sub) : null),
+    h('span', { class: 'ttl' }, num != null ? h('span', { class: 'turn-no' }, num) : null, title, sub ? h('small', null, sub) : null),
     h('span', { class: 'chev' }, '▸'),
-    h('span', { class: 'meta' }, stagePill(res), res.speedup != null ? h('span', null, fmtX(res.speedup)) : null, res.time_ms != null ? h('span', null, fmtMs(res.time_ms)) : null),
+    meta || h('span', { class: 'meta' }, stagePill(res), res.speedup != null ? h('span', null, fmtX(res.speedup)) : null, res.time_ms != null ? h('span', null, fmtMs(res.time_ms)) : null),
+    preview ? h('span', { class: 'preview' }, preview) : null,
     flags && flags.length ? h('span', { class: 'flagline', title: flags.join(' ') }, flags.join(' ')) : null);
   let bodyEl = null;
   const toggle = (force) => {
@@ -523,6 +553,11 @@ function tileFor(run, rep, key) {
   const head = h('div', { class: 't-head' }, h('span', { class: 'stamp ' + key }, key), h('div', null, h('div', { class: 't-title' }, ARMS[key].name), h('div', { class: 't-sub' }, ARMS[key].where + ' · ' + ARMS[key].blurb)));
   if (!arm) return h('div', base, head, h('div', { class: 't-sub' }, rep.errors.length ? 'aborted before this arm' : key === 'C' && rep.A && !rep.A.memory_md ? 'skipped — no correct candidate on amd64, so no memory' : 'no data'));
   const go2 = () => go({ run: run.id, repeat: rep.repeat, view: 'timeline', arm: key, idx: 0 });
+  if (key === 'A' && arm.reused_from) {
+    return h('button', { ...base, type: 'button', onclick: go2 }, head,
+      h('div', { class: 't-sub' }, `Self-Refine was not re-run. memory.md reused from ${arm.reused_from}.`),
+      h('div', { class: 'chips' }, arm.memory_md != null ? h('span', { class: 'chip' }, `memory ${words(arm.memory_md)} words`) : null));
+  }
   if (key === 'A') {
     const best = bestSpeedup(arm);
     return h('button', { ...base, type: 'button', onclick: go2 }, head,
@@ -543,6 +578,7 @@ function overview(ctx) {
     root.append(h('section', { class: 'chain rise', style: `--i:${i + 2}` },
       h('div', { class: 'chain-top' }, h('h3', null, `Chain ${rep.repeat}`),
         h('span', null, h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'memory' }) }, 'Memory'), ' ',
+          h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'transcript' }) }, 'Transcript'), ' ',
           h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'timeline' }) }, 'Open chain'))),
       rep.errors.map((e) => errorBanner(e)),
       h('div', { class: 'cards3' }, tileFor(run, rep, 'A'), tileFor(run, rep, 'B'), tileFor(run, rep, 'C'))));
@@ -561,11 +597,12 @@ function chainView(ctx) {
     h('h1', { style: 'font-size:28px' }, `${run.id} · chain ${rep.repeat}`),
     h('span', { class: 'tabs' },
       h('button', { type: 'button', 'aria-pressed': String(ctx.view === 'timeline'), onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'timeline' }) }, 'Timeline'),
-      h('button', { type: 'button', 'aria-pressed': String(ctx.view === 'memory'), onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'memory' }) }, 'Memory')),
+      h('button', { type: 'button', 'aria-pressed': String(ctx.view === 'memory'), onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'memory' }) }, 'Memory'),
+      h('button', { type: 'button', 'aria-pressed': String(ctx.view === 'transcript'), onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'transcript' }) }, 'Transcript')),
     h('span', null, h('button', { class: 'btn', type: 'button', disabled: idx <= 0, onclick: () => nav(-1) }, '‹ prev'), ' ',
       h('button', { class: 'btn', type: 'button', disabled: idx >= run.repeats.length - 1, onclick: () => nav(1) }, 'next ›'))));
   rep.errors.forEach((e) => root.append(errorBanner(e)));
-  root.append(ctx.view === 'memory' ? memoryView(run, rep) : timelineView(run, rep));
+  root.append(ctx.view === 'memory' ? memoryView(run, rep) : ctx.view === 'transcript' ? transcriptView(run, rep, ctx) : timelineView(run, rep));
   return root;
 }
 function colHead(key, extra) {
@@ -580,7 +617,11 @@ function timelineView(run, rep) {
   const filt = (res) => !state.fail || !isOk(res);
   // A
   if (!rep.A) cols.append(emptyCol('A', rep, rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : 'No data.'));
-  else {
+  else if (rep.A.reused_from) {
+    cols.append(h('section', { class: 'col A' }, colHead('A', 'not re-run: memory reused'),
+      h('div', { class: 'note' }, h('pre', null, `Self-Refine was not run in this run. The memory below was read from ${rep.A.reused_from}.`)),
+      rep.A.memory_md != null ? h('div', { class: 'block' }, h('h4', null, 'Stored memory (memory.md)'), h('div', { class: 'index-card' }, h('pre', null, rep.A.memory_md))) : null));
+  } else {
     const col = h('section', { class: 'col A' }, colHead('A', `${rep.A.attempts.length} attempts · best ${fmtX(bestSpeedup(rep.A))}`));
     col.append(h('div', { class: 'block rise' }, spark(rep.A.attempts, 380, 90, (i) => go({ run: run.id, repeat: rep.repeat, view: 'timeline', arm: 'A', idx: i }))));
     const rail = h('div', { class: 'rail' });
@@ -616,6 +657,7 @@ function memoryView(run, rep) {
   if (!a || a.memory_md == null) colA.append(h('div', { class: 'empty-note' }, !a ? 'No data.' : rep.errors.length ? 'No memory was stored: the repeat aborted before arm A finished.' : 'No memory was stored (no correct candidate).'));
   else {
     colA.append(h('div', { class: 'mem-meta' }, h('span', { class: 'chip' }, `${words(a.memory_md)} words`), h('span', { class: 'chip' }, `${a.memory_md.length} chars`),
+      a.reused_from ? h('span', { class: 'chip warn' }, `reused from ${a.reused_from} (arm A not re-run)`) : null,
       a.memory_shorten ? h('span', { class: 'chip warn' }, 'shorten retry used') : null, a.truncated ? h('span', { class: 'chip bad hatch' }, 'hard-clipped at the word cap') : null),
       h('div', { class: 'index-card' }, h('h4', null, 'memory.md (verbatim)'), h('pre', null, a.memory_md)));
     if (a.truncated) colA.append(h('div', { class: 'banner warn' }, 'The reflection and the one shorten retry both exceeded the word cap, so the harness cut the text at the cap. Newlines are lost and the text can stop mid-sentence.'));
@@ -661,6 +703,143 @@ function perTrialMemory(col, arm, key) {
     col.append(box);
   });
 }
+
+/* ---------- transcript: every trace step of a chain, in order ---------- */
+const tState = { kinds: { llm: true, sandbox: true, memory: true }, query: '' };
+const ROLE = { generate: 'generate', refine: 'refine', feedback: 'feedback', lesson: 'lesson (reflection)', memory_reflection: 'memory reflection', memory_shorten: 'memory shorten' };
+const KIND_LABEL = { llm: 'Claude call', sandbox: 'sandbox run', memory_update: 'memory update', memory_truncated: 'memory clipped', memory_reused: 'memory reused' };
+const kindGroup = (e) => (e.kind === 'llm' ? 'llm' : e.kind === 'sandbox' ? 'sandbox' : 'memory');
+const stepTag = (e) => (e.round_no != null ? `round ${e.round_no}` : e.trial != null ? `trial ${e.trial}` : '');
+const pad2 = (n) => String(n).padStart(2, '0');
+const turnTitle = (e) => (e.kind === 'llm' ? `${KIND_LABEL.llm} · ${ROLE[e.role] || e.role || '?'}` : KIND_LABEL[e.kind] || `unknown step “${e.kind}”`);
+const oneLine = (t, n) => { const x = String(t == null ? '' : t).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n) + '…' : x; };
+const haystacks = new WeakMap();
+function matches(e, q) {
+  if (!q) return true;
+  if (!haystacks.has(e)) {
+    // the text of the step only: no key names, and not the `memory` list copied into every later step
+    const skip = new Set(['arm', 'session_id', 'memory']);
+    const parts = Object.entries(e).filter(([k, v]) => !skip.has(k) && typeof v === 'string').map(([, v]) => v);
+    parts.push((e.flags || []).join(' '), (e.result && e.result.stderr) || '');
+    haystacks.set(e, parts.join('\n').toLowerCase());
+  }
+  return haystacks.get(e).includes(q);
+}
+function turnPreview(e) {
+  if (e.kind === 'llm') return '← ' + oneLine(e.text, 170);
+  if (e.kind === 'sandbox') return `${(e.flags || []).join(' ')} → ${(STAGE[(e.result || {}).stage] || 'no result')}`;
+  if (e.kind === 'memory_update') return oneLine(e.lesson, 170);
+  if (e.kind === 'memory_reused') return oneLine(e.source, 170);
+  return oneLine(JSON.stringify(e), 170);
+}
+function turnMeta(e) {
+  const tag = h('span', { class: 'kind' + (e.kind === 'llm' ? ' llm' : '') }, e.kind === 'llm' ? 'llm' : e.kind === 'sandbox' ? 'sandbox' : 'event');
+  if (e.kind === 'llm') {
+    return h('span', { class: 'meta' }, tag, h('span', null, `${(e.prompt || '').length.toLocaleString()} → ${(e.text || '').length.toLocaleString()} chars`),
+      h('span', null, `${(e.duration_s || 0).toFixed(1)} s`), h('span', null, `$${(e.cost_usd || 0).toFixed(3)}`));
+  }
+  if (e.kind === 'sandbox' && e.result) {
+    return h('span', { class: 'meta' }, tag, stagePill(e.result), e.result.speedup != null ? h('span', null, fmtX(e.result.speedup)) : null, e.platform ? h('span', null, e.platform) : null);
+  }
+  return h('span', { class: 'meta' }, tag);
+}
+function bubble(cls, title, text, inspectTitle) {
+  return h('div', { class: 'bubble ' + cls },
+    h('header', null, h('span', null, title), h('span', null, `${text.length.toLocaleString()} chars · ${words(text).toLocaleString()} words `, h('button', { class: 'btn', type: 'button', onclick: () => openInspector(inspectTitle, [{ label: title, text }]) }, 'open'))),
+    h('pre', null, text));
+}
+function turnBody(e, prevCode, title) {
+  const body = h('div', { class: 'card-body' });
+  if (e.kind === 'llm') {
+    const u = e.usage || {}, models = Object.keys(e.model_usage || {});
+    if (e.prompt != null) body.append(bubble('prompt', 'Prompt sent to Claude', e.prompt, title));
+    if (e.text != null) body.append(bubble('reply', 'Claude’s reply', e.text, title));
+    body.append(h('div', { class: 'facts' }, models.length ? h('span', null, h('b', null, 'model'), models.join(', ')) : null,
+      u.input_tokens != null ? h('span', null, h('b', null, 'tokens in'), String(u.input_tokens)) : null, u.output_tokens != null ? h('span', null, h('b', null, 'tokens out'), String(u.output_tokens)) : null));
+  } else if (e.kind === 'sandbox') {
+    body.append(codeBlock(e.code || '', prevCode, e.flags), resultBlock({ stage: 'unknown', ...(e.result || {}) }));
+    if ((e.memory || []).length) body.append(h('div', { class: 'block' }, h('h4', null, `Memory in effect (${e.memory.length} entr${e.memory.length === 1 ? 'y' : 'ies'})`),
+      e.memory.map((m, i) => h('div', { class: 'index-card' }, h('h4', null, `entry ${i + 1}`), h('pre', null, m)))));
+  } else if (e.kind === 'memory_update') {
+    body.append(noteBlock('Lesson appended to memory (as stored, clipped to the word cap)', e.lesson || ''));
+  } else if (e.kind === 'memory_truncated') {
+    body.append(h('div', { class: 'facts' }, h('span', null, h('b', null, 'words before clip'), String(e.words)), h('span', null, h('b', null, 'cap'), String(e.cap))));
+  } else if (e.kind === 'memory_reused') {
+    body.append(noteBlock('Memory reused from an earlier run (arm A was not re-run)', String(e.source)));
+  } else {
+    body.append(noteBlock('Step kind not known to this viewer; raw contents', JSON.stringify(e, null, 2)));
+  }
+  body.append(h('div', { class: 'row-actions' }, inspectBtn('Raw JSON', () => openInspector(title, [{ label: 'JSON', obj: e }]))));
+  return body;
+}
+function fenceFor(text) {
+  const runs = String(text).match(/`+/g) || [];
+  return '`'.repeat(Math.max(3, ...runs.map((r) => r.length + 1)));
+}
+const mdLine = (t, n = 160) => oneLine(t, n).replace(/</g, '&lt;');  // model-chosen text in a heading stays on one inert line
+function turnMarkdown(e) {
+  const fenced = (label, text) => { const f = fenceFor(text); return `**${label}**\n\n${f}\n${text}\n${f}\n`; };
+  const out = [`### ${pad2(e.step)} · ${mdLine(turnTitle(e))}${stepTag(e) ? ' (' + mdLine(stepTag(e), 40) + ')' : ''}`, `_${mdLine(e.file, 80)}${e.kind === 'llm' ? ` · ${(e.duration_s || 0).toFixed(1)} s · $${(e.cost_usd || 0).toFixed(4)}` : ''}_\n`];
+  if (e.kind === 'llm') out.push(fenced('Prompt', e.prompt || ''), fenced('Reply', e.text || ''));
+  else if (e.kind === 'sandbox') {
+    const r = e.result || {};
+    out.push(fenced(`Code (FLAGS: ${mdLine((e.flags || []).join(' '), 200)})`, e.code || ''),
+      `**Result:** ${mdLine(STAGE[r.stage] || r.stage || 'unknown', 40)}, time ${fmtMs(r.time_ms)}, speedup ${fmtX(r.speedup)}${e.platform ? ', platform ' + mdLine(e.platform, 20) : ''}\n`, r.stderr ? fenced('Compiler / runtime output', r.stderr) : '');
+  } else if (e.kind === 'memory_update') out.push(fenced('Lesson appended to memory', e.lesson || ''));
+  else out.push(fenced('Step', JSON.stringify(e, null, 2)));
+  return out.join('\n');
+}
+function download(name, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = h('a', { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function transcriptView(run, rep, ctx) {
+  if (ctx.arm && ctx.idx != null) { Object.assign(tState.kinds, { llm: true, sandbox: true, memory: true }); tState.query = ''; }  // a link to one step must show it
+  const root = h('div'), arms = ctx.arm ? [ctx.arm] : ['A', 'B', 'C'];
+  const list = h('div'), stats = h('span', { class: 'tx-stats' });
+  let searchTimer = null;
+  const shown = () => arms.map((k) => [k, (rep.transcript[k] || []).filter((e) => tState.kinds[kindGroup(e)] && matches(e, tState.query))]);
+  const renderList = () => {
+    list.replaceChildren();
+    let turns = 0, calls = 0, cost = 0;
+    for (const [k, entries] of shown()) {
+      const all = rep.transcript[k] || [];
+      const sec = h('section', { class: 'tx-arm col ' + k }, colHead(k, `${entries.length} of ${all.length} steps shown`));
+      const rail = h('div', { class: 'rail' });
+      const prevCode = new Map();
+      let last = null;
+      for (const e of all) { prevCode.set(e.step, last); if (e.kind === 'sandbox') last = e.code || ''; }
+      entries.forEach((e, i) => {
+        turns++; if (e.kind === 'llm') { calls++; cost += e.cost_usd || 0; }
+        const title = `${k} · step ${pad2(e.step)} · ${chainTitle(run, rep)}`;
+        rail.append(card({ key: `T-${k}-${e.step}`, arm: k, idx: i, num: pad2(e.step), title: turnTitle(e), sub: stepTag(e), res: e.kind === 'sandbox' ? e.result : null,
+          meta: turnMeta(e), preview: turnPreview(e), flags: null, body: () => turnBody(e, prevCode.get(e.step), title) }));
+      });
+      if (!entries.length) rail.append(h('div', { class: 'empty-note' }, all.length ? 'No steps match the current filters.' : rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : 'No steps recorded for this arm.'));
+      sec.append(rail); list.append(sec);
+    }
+    stats.textContent = `${turns} steps · ${calls} Claude calls · $${cost.toFixed(2)}`;
+  };
+  const armTabs = h('span', { class: 'tabs' }, [null, 'A', 'B', 'C'].map((k) => h('button', { type: 'button', 'aria-pressed': String((ctx.arm || null) === k),
+    onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'transcript', arm: k }) }, k || 'All arms')));
+  const kindBox = (k, label) => h('label', null, h('input', { type: 'checkbox', checked: tState.kinds[k], onchange: (ev) => { tState.kinds[k] = ev.target.checked; renderList(); } }), label);
+  const search = h('input', { type: 'search', placeholder: 'find text in this chain…', 'aria-label': 'Find text in this chain', value: tState.query,
+    oninput: (ev) => { const v = ev.target.value.trim().toLowerCase(); clearTimeout(searchTimer); searchTimer = setTimeout(() => { tState.query = v; renderList(); }, 150); } });
+  const toggleAll = (open) => list.querySelectorAll('.card').forEach((c) => c.toggleOpen(open));
+  const base = `${run.id}_chain${rep.repeat}${ctx.arm ? '_' + ctx.arm : ''}_transcript`;
+  const asMarkdown = () => [`# ${run.id} · chain ${rep.repeat} · transcript`, '', ...shown().flatMap(([k, es]) => [`## Arm ${k} · ${ARMS[k].name} · ${ARMS[k].where}`, '', ...es.map(turnMarkdown)])].join('\n');
+  const asJson = () => JSON.stringify(Object.fromEntries(shown()), null, 2);
+  root.append(h('div', { class: 'tx-bar rise' }, armTabs, kindBox('llm', 'Claude calls'), kindBox('sandbox', 'sandbox runs'), kindBox('memory', 'memory & other'), search,
+    h('button', { class: 'btn', type: 'button', onclick: () => toggleAll(true) }, 'Expand all'), h('button', { class: 'btn', type: 'button', onclick: () => toggleAll(false) }, 'Collapse all'),
+    h('button', { class: 'btn', type: 'button', onclick: () => download(base + '.md', asMarkdown(), 'text/markdown') }, 'Download .md'),
+    h('button', { class: 'btn', type: 'button', onclick: () => download(base + '.json', asJson(), 'application/json') }, 'Download .json'), stats));
+  renderList();
+  root.append(list);
+  return root;
+}
+const chainTitle = (run, rep) => `${run.id} chain ${rep.repeat}`;
 
 /* ---------- inspector drawer ---------- */
 const drawer = $('#drawer'), scrim = $('#scrim');
@@ -712,6 +891,7 @@ function renderTop(ctx) {
       r.id.replace(/^matxfer_/, ''), h('small', null, r.dev ? 'dev' : '$' + r.cost_usd.toFixed(0))));
   });
   $('#opt-dev').checked = state.dev; $('#opt-fail').checked = state.fail;
+  $('#opt-fail').parentElement.hidden = !!ctx.rep && ctx.view === 'transcript';  // it filters the timeline, not the transcript
 }
 function applyTheme(t) { document.documentElement.dataset.theme = t; store.set('mtn-theme', t); }
 applyTheme(['light', 'dark'].includes(query.get('theme')) ? query.get('theme') : store.get('mtn-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
@@ -728,8 +908,9 @@ document.addEventListener('keydown', (e) => {
   const at = heads.indexOf(document.activeElement);
   if (e.key === 'j' || e.key === 'k') { const next = heads[at < 0 ? 0 : at + (e.key === 'j' ? 1 : -1)]; if (next) { next.focus(); next.scrollIntoView({ block: 'center', behavior: 'smooth' }); } }
   else if (e.key === 't') applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
-  else if (e.key === 'f') { state.fail = !state.fail; render(); }
+  else if (e.key === 'f' && !(ctx.rep && ctx.view === 'transcript')) { state.fail = !state.fail; render(); }
   else if (e.key === 'm' && ctx.run && ctx.rep) go({ run: ctx.run.id, repeat: ctx.rep.repeat, view: ctx.view === 'memory' ? 'timeline' : 'memory' });
+  else if (e.key === 'a' && ctx.run && ctx.rep) go({ run: ctx.run.id, repeat: ctx.rep.repeat, view: ctx.view === 'transcript' ? 'timeline' : 'transcript' });
   else if ((e.key === '[' || e.key === ']') && ctx.run && ctx.rep) {
     const reps = ctx.run.repeats, n = reps[reps.indexOf(ctx.rep) + (e.key === ']' ? 1 : -1)];
     if (n) go({ run: ctx.run.id, repeat: n.repeat, view: ctx.view });
@@ -743,6 +924,10 @@ function afterRender(ctx) {
     const el = document.querySelector(`[data-key="${ctx.arm}-${ctx.idx}"]`);
     if (el) { el.toggleOpen(true); el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); }
   }
+  if (ctx.rep && ctx.view === 'transcript' && ctx.arm && ctx.idx != null) {
+    const el = document.querySelector(`[data-key="T-${ctx.arm}-${ctx.idx}"]`);
+    if (el) { el.toggleOpen(true); el.scrollIntoView({ block: 'center' }); el.classList.add('flash'); }
+  }
   if (!ctx.arm) window.scrollTo(0, 0);
 }
 function render() {
@@ -754,7 +939,7 @@ function render() {
     if (ctx.missing) app.append(h('div', { class: 'banner warn' }, `Run “${ctx.missing}” was not found in this build; showing ${ctx.run.id} instead.`));
     app.append(ctx.rep ? chainView(ctx) : overview(ctx), h('footer', null,
       h('span', null, h('kbd', null, 'j'), ' ', h('kbd', null, 'k'), ' move between steps'), h('span', null, h('kbd', null, '['), ' ', h('kbd', null, ']'), ' previous / next chain'),
-      h('span', null, h('kbd', null, 'm'), ' memory panel'), h('span', null, h('kbd', null, 'f'), ' failures only'), h('span', null, h('kbd', null, 't'), ' theme'), h('span', null, h('kbd', null, 'Esc'), ' close inspector')));
+      h('span', null, h('kbd', null, 'm'), ' memory panel'), h('span', null, h('kbd', null, 'a'), ' all turns'), h('span', null, h('kbd', null, 'f'), ' failures only'), h('span', null, h('kbd', null, 't'), ' theme'), h('span', null, h('kbd', null, 'Esc'), ' close inspector')));
     afterRender(ctx);
   } catch (err) {
     app.replaceChildren(h('div', { class: 'error-panel' }, h('h3', null, 'The viewer hit an error while rendering'), h('pre', null, String(err && err.stack || err))));
