@@ -46,7 +46,7 @@ viewer/
   template.html            the UI (vanilla JS and CSS, no dependencies)
   index.html               generated; rebuild after every new run
   browser_check.js         scripted browser regression (optional, needs puppeteer-core)
-tests/                     127 tests (pytest); canned C sources live in tests/canned/
+tests/                     130 tests (pytest); canned C sources live in tests/canned/
 plan/                      design docs, implementation plans, and the progress ledger
 traces/                    one directory per run (see "Trace layout")
 ```
@@ -177,7 +177,7 @@ For example, `index.html#/matxfer_full2/1/timeline/C/0` opens the first C trial 
 
 **Safety.** Trace text is untrusted model output. The UI renders it only through DOM text nodes (never `innerHTML`), and the embedded JSON escapes `&`, `<`, `>`, U+2028, and U+2029, so a `</script>` inside a reply cannot break the page. `viewer/browser_check.js` includes a hostile-text case that guards this.
 
-**Browser regression (optional).** `viewer/browser_check.js` drives Google Chrome through the views above (78 checks). It needs `puppeteer-core` and a hostile-text fixture page:
+**Browser regression (optional).** `viewer/browser_check.js` drives Google Chrome through the views above (88 checks). It needs `puppeteer-core` and a hostile-text fixture page:
 
 ```bash
 npm i puppeteer-core
@@ -187,7 +187,7 @@ NODE_PATH=$PWD/node_modules node viewer/browser_check.js "$PWD" /tmp/shots /path
 ## Tests
 
 ```bash
-uv run pytest -q -m "not llm"      # 127 tests; the sandbox tests need Docker
+uv run pytest -q -m "not llm"      # 130 tests; the sandbox tests need Docker
 uv run pytest -q -m llm            # live Claude calls; spends tokens
 uv run ruff check . && uv run mypy src run.py
 ```
@@ -201,6 +201,7 @@ The suite uses a scripted `FakeLLM` and canned C sources (wrong result, infinite
 - **Generic ablation:** `matxfer_generic` completed one of three repeats. Two aborted when a Claude call stalled past the 300 s timeout. The retry backoff added since then addresses this, but those traces predate it.
 - **Memory text:** A's memories sometimes assert AVX-512 behavior that cannot occur under Rosetta, so the narrative inside a memory is not reliable evidence about the hardware. The harness prefixes each entry with `- `, which produces a double bullet in C's memory block; the viewer shows it as is.
 - **Arm D:** `matxfer_d_full` and `matxfer_d_full2` ran D on repeat 1 of `matxfer_full` and `matxfer_full2`. Both passed on the first try (176x and 154x over the amd64 naive loop), and neither attempt used `immintrin.h`. Two chains is a sanity check on the memory in its home environment, not a comparison.
+- **Arm D in the source run:** the viewer attaches each D-only run to the run its memory came from (`memory_source` in `run_meta.json`), chain by chain, so `matxfer_full2` shows D beside B and C. The attached D is marked "run separately as matxfer_d_full2", and the source run's cost and call count do not include it. The standalone D runs stay listed.
 - **Runs that reuse memory:** in a run made with `--reuse-memory-from`, arm A was not re-run, so its column shows the reused `memory.md` and a "not re-run" note instead of attempts, and its transcript is the single `memory_reused` event.
 - **Timing artifacts:** buffers are shared across timing repetitions, and emulated timings carry 10 to 20 percent noise.
 - **Deviations from the papers:** A's feedback sees measured results (closer to a grounded evaluator than pure self-feedback), 10 rounds exceeds Self-Refine's 4, the final candidate is the best correct one rather than the last, and the memory is written from a success whereas Reflexion writes reflections from failures.

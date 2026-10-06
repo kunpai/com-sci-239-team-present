@@ -240,6 +240,7 @@ const ARMS = {
   C: { name: 'Reflexion trials', where: 'arm/v7', blurb: "with A's memory" },
   D: { name: 'Reflexion trials', where: 'amd64', blurb: "with A's memory, same platform as A" },
 };
+const ranIn = (arm) => (arm && arm.ran_in ? h('span', { class: 'chip warn' }, `run separately as ${arm.ran_in}`) : null);
 const MEM_ARMS = ['C', 'D'];  // the arms that start from A's memory
 // the arms a run actually has: A, then B/C/D where any chain has data (older runs: B and C)
 function armKeys(run) {
@@ -558,7 +559,7 @@ function tileFor(run, rep, key) {
   const arm = rep[key];
   const base = { class: 'tile ' + key + (arm ? '' : ' empty') };
   const head = h('div', { class: 't-head' }, h('span', { class: 'stamp ' + key }, key), h('div', null, h('div', { class: 't-title' }, ARMS[key].name), h('div', { class: 't-sub' }, ARMS[key].where + ' · ' + ARMS[key].blurb)));
-  if (!arm) return h('div', base, head, h('div', { class: 't-sub' }, rep.errors.length ? 'aborted before this arm' : MEM_ARMS.includes(key) && rep.A && !rep.A.memory_md ? 'skipped — no correct candidate on amd64, so no memory' : 'no data'));
+  if (!arm) return h('div', base, head, h('div', { class: 't-sub' }, rep.errors.length ? 'aborted before this arm' : MEM_ARMS.includes(key) && rep.A && !rep.A.memory_md ? 'skipped — no correct candidate on amd64, so no memory' : key === 'D' ? 'not run for this chain' : 'no data'));
   const go2 = () => go({ run: run.id, repeat: rep.repeat, view: 'timeline', arm: key, idx: 0 });
   if (key === 'A' && arm.reused_from) {
     return h('button', { ...base, type: 'button', onclick: go2 }, head,
@@ -576,7 +577,7 @@ function tileFor(run, rep, key) {
     h('div', { class: 'chips', style: 'margin:0 0 8px' }, stagePill(info.first.result), h('span', { class: 'chip' }, info.firstOk ? 'first try' : `first try failed`)),
     h('div', { class: 'big' }, fmtX(info.final)),
     h('div', { class: 't-sub' }, info.winTrial ? `succeeded at trial ${info.winTrial} of ${info.n}` : `never succeeded (${info.n} trials)`),
-    MEM_ARMS.includes(key) && arm.memory_seen != null ? h('div', { class: 'chips' }, h('span', { class: 'chip' }, `memory shown: ${words(stripBullet(arm.memory_seen))} words`)) : null);
+    h('div', { class: 'chips' }, MEM_ARMS.includes(key) && arm.memory_seen != null ? h('span', { class: 'chip' }, `memory shown: ${words(stripBullet(arm.memory_seen))} words`) : null, ranIn(arm)));
 }
 function overview(ctx) {
   const run = ctx.run, root = h('div');
@@ -642,7 +643,7 @@ function timelineView(run, rep) {
   for (const key of armKeys(run).slice(1)) {
     const arm = rep[key];
     if (!arm) { cols.append(emptyCol(key, rep, rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : MEM_ARMS.includes(key) && rep.A && rep.A.memory_md == null && rep.A.attempts.length ? 'Skipped — arm A produced no correct candidate, so there was no memory to transfer.' : 'No data.')); continue; }
-    const col = h('section', { class: 'col ' + key }, colHead(key));
+    const col = h('section', { class: 'col ' + key }, colHead(key, arm.ran_in ? `run separately as ${arm.ran_in}, same memory` : null));
     col.append(h('div', { class: 'block' }, h('h4', null, MEM_ARMS.includes(key) ? "Memory shown to the model (exactly as in the first prompt)" : 'Memory shown to the model'),
       arm.memory_seen != null ? h('div', { class: 'index-card' }, h('pre', null, arm.memory_seen)) : h('div', { class: 'index-card none' }, 'none — no memory block in the prompt')));
     const rail = h('div', { class: 'rail' });
@@ -687,7 +688,7 @@ function memoryView(run, rep) {
       const seen = rep[key].memory_seen;
       if (seen != null) {
         const same = a && a.memory_md != null && stripBullet(seen).trim() === stripBullet(a.memory_md.trim()).trim() || (a && a.memory_md != null && seen.trim() === ('- ' + a.memory_md.trim()));
-        colM.append(h('div', { class: 'mem-meta' }, h('span', { class: 'chip' }, `${words(stripBullet(seen))} words shown`),
+        colM.append(h('div', { class: 'mem-meta' }, h('span', { class: 'chip' }, `${words(stripBullet(seen))} words shown`), ranIn(rep[key]),
           same ? h('span', { class: 'chip ok' }, 'matches memory.md (plus the harness bullet)') : h('span', { class: 'chip bad' }, 'differs from memory.md'),
           /^- (- |\*\*)/.test(seen) && /^- /.test(a && a.memory_md || '') ? h('span', { class: 'chip warn' }, 'double bullet artifact') : null),
           h('div', { class: 'index-card' }, h('h4', null, 'shown to the model (verbatim)'), h('pre', null, seen)));

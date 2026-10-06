@@ -158,6 +158,7 @@ def _arm_trials(directory: Path, arm: str) -> dict[str, Any] | None:
         "platform_inferred": any("platform" not in s for s in sandbox.values()),
         "trials": trials,
         "memory_seen": seen,
+        "ran_in": None,  # set when this arm is shown inside another run (see _attach_arm_d)
     }
 
 
@@ -252,6 +253,28 @@ def load_run(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def _attach_arm_d(runs: list[dict[str, Any]]) -> None:
+    """Show each D-only run's arm D inside the run its memory came from, chain by chain.
+
+    The source run's own cost, call count and arms are left alone; the attached D arm records
+    which run it was made in (`ran_in`), and the standalone D run stays listed as it was.
+    """
+    by_id = {run["id"]: run for run in runs}
+    for run in runs:
+        if run["meta"].get("arms") != ["D"] or not run["meta"].get("memory_source"):
+            continue
+        source = by_id.get(Path(run["meta"]["memory_source"]).name)
+        if source is None or source is run:
+            continue
+        theirs = {rep["repeat"]: rep for rep in source["repeats"]}
+        for rep in run["repeats"]:
+            target = theirs.get(rep["repeat"])
+            if target is None or rep["D"] is None or target["D"] is not None:
+                continue
+            target["D"] = {**rep["D"], "ran_in": run["id"]}
+            target["transcript"]["D"] = rep["transcript"]["D"]
+
+
 def build_data(traces_root: Path) -> dict[str, Any]:
     """Load every run under `traces_root`, sorted by run id."""
     runs = [
@@ -259,6 +282,7 @@ def build_data(traces_root: Path) -> dict[str, Any]:
         for path in sorted(traces_root.iterdir())
         if path.is_dir() and any((path / arm).is_dir() for arm in ARMS)
     ]
+    _attach_arm_d(runs)
     return {"runs": runs}
 
 

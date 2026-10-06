@@ -175,3 +175,46 @@ def test_a_d_only_run_still_has_the_task_text_and_is_listed(tmp_path: Path) -> N
 
 def test_older_runs_have_a_null_d_arm(tmp_path: Path) -> None:
     assert load_run(_make_run(tmp_path))["repeats"][0]["D"] is None
+
+
+# --- arm D attached to the run its memory came from ----------------------------------------------
+
+
+def _source_and_d(tmp_path: Path) -> Path:
+    """A normal run `matxfer_t`, then a D-only run that reused its repeat-1 memory."""
+    source_dir = _make_run(tmp_path)
+    llm = FakeLLM([code_reply("d1")])
+    tables = {AMD64.name: {"d1": ok(3.0)}}
+    run_experiment(
+        Config(trials=1), llm, lambda p: scripted_run(tables[p.name]), NAIVE, tmp_path, "matxfer_d_t",
+        memory_source=source_dir, arm_d=True, only_repeats=[1],
+    )  # fmt: skip
+    return source_dir
+
+
+def test_a_d_run_is_attached_to_the_run_its_memory_came_from(tmp_path: Path) -> None:
+    from viewer.build import build_data
+
+    _source_and_d(tmp_path)
+    runs = {r["id"]: r for r in build_data(tmp_path)["runs"]}
+    rep = runs["matxfer_t"]["repeats"][0]
+    assert rep["D"]["trials"][0]["platform"] == "amd64" and rep["D"]["ran_in"] == "matxfer_d_t"
+    assert [t["kind"] for t in rep["transcript"]["D"]] == ["llm", "sandbox"]
+    assert rep["B"] is not None and rep["C"] is not None  # the original arms are untouched
+    assert runs["matxfer_d_t"]["repeats"][0]["D"]["ran_in"] is None  # standalone run stays as it was
+
+
+def test_attaching_d_does_not_change_the_source_runs_cost_or_call_count(tmp_path: Path) -> None:
+    from viewer.build import build_data
+
+    _source_and_d(tmp_path)
+    runs = {r["id"]: r for r in build_data(tmp_path)["runs"]}
+    assert runs["matxfer_t"]["llm_calls"] == 10  # D's call belongs to the D run
+
+
+def test_a_d_run_whose_source_is_missing_is_left_alone(tmp_path: Path) -> None:
+    from viewer.build import build_data
+
+    _arm_d_run(tmp_path)  # source is `src_run`, which has no B/C and is not a run on its own
+    runs = build_data(tmp_path)["runs"]
+    assert "matxfer_d" in [r["id"] for r in runs]

@@ -84,3 +84,5 @@ Transcript: minor (deferred): a `$t` key inside any trace step makes build.py ra
 - Runs: `matxfer_d_full`, `matxfer_d_full2` (repeat 1 each): 2/2 first-try success on amd64, 175.8x and 153.8x; no `immintrin.h` in either attempt.
 - Viewer: arm D in build.py (`ARMS`, `PLATFORM_BY_ARM`, transcripts, cost, run listing, task text fallback) and template (colour, tiles, columns, memory column, transcript tabs via `armKeys(run)`); 127 tests and 78 browser checks pass.
 - Note: the A-tile blurb says "10 rounds", which is right for every full run; only the hidden dev runs (`matxfer_quick`, 3 rounds) differ, so this stays as is.
+- Ruling: D-only runs are attached to their source run in the viewer build (`_attach_arm_d`, via `memory_source`) instead of moving trace directories — the user wanted D visible in `matxfer_full2`, and this keeps traces and `run_meta.json` untouched and the standalone D runs listed too — cost if wrong: a D arm appears in two places in the viewer.
+- Viewer: attached D shows a "run separately as <run>" chip; chains without D show "not run for this chain"; 130 tests and 88 browser checks pass.
