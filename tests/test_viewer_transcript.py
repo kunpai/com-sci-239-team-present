@@ -63,7 +63,7 @@ def test_aborted_repeat_has_empty_transcripts(tmp_path: Path) -> None:
         NAIVE, tmp_path, "matxfer_d",
     )  # fmt: skip
     first = load_run(run_dir)["repeats"][0]
-    assert first["transcript"] == {"A": [], "B": [], "C": []}
+    assert first["transcript"] == {"A": [], "B": [], "C": [], "D": []}
 
 
 def test_reused_memory_run_shows_the_reuse_in_arm_a_and_its_transcript(tmp_path: Path) -> None:
@@ -134,3 +134,44 @@ def test_intern_boundary_is_255_inline_256_interned() -> None:
 def test_intern_refuses_a_reference_key_next_to_other_keys() -> None:
     with pytest.raises(ValueError, match=r"\$t"):
         intern_texts({"$t": 0, "other": 1})
+
+
+# --- arm D (x86 + A's memory) ------------------------------------------------------------------
+
+
+def _arm_d_run(tmp_path: Path) -> Path:
+    source = tmp_path / "src_run" / "A" / "r1"
+    source.mkdir(parents=True)
+    (source / "memory.md").write_text("old notes\n")
+    llm = FakeLLM([code_reply("d1")])
+    tables = {AMD64.name: {"d1": ok(3.0)}}
+    return run_experiment(
+        Config(trials=1), llm, lambda p: scripted_run(tables[p.name]), NAIVE, tmp_path, "matxfer_d",
+        memory_source=tmp_path / "src_run", arm_d=True,
+    )  # fmt: skip
+
+
+def test_arm_d_is_loaded_with_its_trial_memory_and_amd64_platform(tmp_path: Path) -> None:
+    rep = load_run(_arm_d_run(tmp_path))["repeats"][0]
+    assert rep["B"] is None and rep["C"] is None
+    d = rep["D"]
+    assert d["trials"][0]["platform"] == "amd64" and d["trials"][0]["memory"] == ["old notes"]
+    assert d["memory_seen"] == "- old notes\n"
+
+
+def test_arm_d_has_a_transcript_and_counts_toward_cost_and_calls(tmp_path: Path) -> None:
+    run = load_run(_arm_d_run(tmp_path))
+    assert [t["kind"] for t in run["repeats"][0]["transcript"]["D"]] == ["llm", "sandbox"]
+    assert run["llm_calls"] == 1
+
+
+def test_a_d_only_run_still_has_the_task_text_and_is_listed(tmp_path: Path) -> None:
+    from viewer.build import build_data
+
+    run_dir = _arm_d_run(tmp_path)
+    assert load_run(run_dir)["task_text"]
+    assert "matxfer_d" in [r["id"] for r in build_data(tmp_path)["runs"]]
+
+
+def test_older_runs_have_a_null_d_arm(tmp_path: Path) -> None:
+    assert load_run(_make_run(tmp_path))["repeats"][0]["D"] is None

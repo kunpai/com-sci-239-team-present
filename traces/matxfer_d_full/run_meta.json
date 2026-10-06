@@ -1,0 +1,36 @@
+{
+  "config": {
+    "rounds": 10,
+    "repeats": 3,
+    "trials": 3,
+    "window": 3,
+    "memory_cap_words": 200,
+    "lesson_cap_words": 80,
+    "n": 1024,
+    "reps": 3,
+    "cpus": 4,
+    "mem_limit": "4g",
+    "llm_timeout_s": 300,
+    "compile_timeout_s": 300,
+    "run_timeout_s": 1800,
+    "max_naive_s": 120.0,
+    "model": null,
+    "feedback": "diagnostic"
+  },
+  "naive_ms": {
+    "amd64": 2145.355,
+    "armv7": 4048.888
+  },
+  "task_file": "task/prompt_task.md",
+  "task_sha256": "d5313d906b11ae6eb7e1e362742152af814cffdc1e209f3b7e3d632303bf4b55",
+  "memory_source": "traces/matxfer_full",
+  "target": "amd64",
+  "arms": [
+    "D"
+  ],
+  "python": "3.13.12",
+  "claude": "2.1.290 (Claude Code)",
+  "docker": "Docker version 29.4.3, build 055a478",
+  "host": "macOS-26.3-arm64-arm-64bit-Mach-O",
+  "started": "2026-10-05 17:22:26"
+}

@@ -1,0 +1,8 @@
+{
+  "arm": "A",
+  "repeat": 1,
+  "step": 1,
+  "kind": "memory_reused",
+  "memory": [],
+  "source": "traces/matxfer_full"
+}

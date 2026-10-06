@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent
 DEV_MARKERS = ("calib", "quick")
-PLATFORM_BY_ARM = {"A": "amd64", "B": "armv7", "C": "armv7"}
+ARMS = ("A", "B", "C", "D")
+PLATFORM_BY_ARM = {"A": "amd64", "B": "armv7", "C": "armv7", "D": "amd64"}
 MEMORY_HEADER = "Memory from earlier sessions:\n"
 PLACEHOLDER = "/*__DATA__*/null"
 INTERN_MIN_CHARS = 256  # strings at least this long go into the shared table
@@ -121,7 +122,7 @@ def _arm_a(directory: Path) -> dict[str, Any] | None:
 
 
 def _arm_trials(directory: Path, arm: str) -> dict[str, Any] | None:
-    """Arm B or C: trials with the memory in effect and the lesson written after a failure."""
+    """Arm B, C or D: trials with the memory in effect and the lesson written after a failure."""
     if not directory.is_dir():
         return None
     steps = _read_steps(directory)
@@ -184,7 +185,7 @@ def _errors(directory: Path) -> list[dict[str, str]]:
 
 def _repeat_numbers(run_dir: Path) -> list[int]:
     numbers: set[int] = set()
-    for arm in ("A", "B", "C", "run"):
+    for arm in (*ARMS, "run"):
         arm_dir = run_dir / arm
         if arm_dir.is_dir():
             for child in arm_dir.iterdir():
@@ -199,8 +200,9 @@ def _task_text(repeats: Sequence[dict[str, Any]]) -> str | None:
         if rep["A"] and rep["A"]["attempts"] and rep["A"]["attempts"][0]["gen_prompt"]:
             return str(rep["A"]["attempts"][0]["gen_prompt"])
     for rep in repeats:
-        if rep["B"] and rep["B"]["trials"] and rep["B"]["trials"][0]["prompt"]:
-            return str(rep["B"]["trials"][0]["prompt"]).split(MEMORY_HEADER, 1)[0]
+        for arm in ("B", "C", "D"):
+            if rep[arm] and rep[arm]["trials"] and rep[arm]["trials"][0]["prompt"]:
+                return str(rep[arm]["trials"][0]["prompt"]).split(MEMORY_HEADER, 1)[0]
     return None
 
 
@@ -217,12 +219,13 @@ def load_run(run_dir: Path) -> dict[str, Any]:
                 "A": _arm_a(run_dir / "A" / sub),
                 "B": _arm_trials(run_dir / "B" / sub, "B"),
                 "C": _arm_trials(run_dir / "C" / sub, "C"),
+                "D": _arm_trials(run_dir / "D" / sub, "D"),
                 "errors": _errors(run_dir / "run" / sub),
-                "transcript": {arm: _transcript(run_dir / arm / sub) for arm in ("A", "B", "C")},
+                "transcript": {arm: _transcript(run_dir / arm / sub) for arm in ARMS},
             }
         )
     cost, calls = 0.0, 0
-    for arm in ("A", "B", "C"):
+    for arm in ARMS:
         for path in (run_dir / arm).glob("r*/*.json") if (run_dir / arm).is_dir() else []:
             if _STEP_FILE.match(path.name) and "llm" in path.name:
                 data = json.loads(path.read_text())
@@ -241,7 +244,7 @@ def load_run(run_dir: Path) -> dict[str, Any]:
         # traces from before the `platform` field existed (older harness: quota-only CPU limit,
         # no odd-size check); the viewer infers their platform from the arm and says so
         "platform_inferred": any(
-            arm and arm["platform_inferred"] for rep in repeats for arm in (rep["A"], rep["B"], rep["C"])
+            arm and arm["platform_inferred"] for rep in repeats for arm in (rep[name] for name in ARMS)
         ),
         "cost_usd": round(cost, 4),
         "llm_calls": calls,
@@ -254,7 +257,7 @@ def build_data(traces_root: Path) -> dict[str, Any]:
     runs = [
         load_run(path)
         for path in sorted(traces_root.iterdir())
-        if path.is_dir() and any((path / arm).is_dir() for arm in ("A", "B", "C"))
+        if path.is_dir() and any((path / arm).is_dir() for arm in ARMS)
     ]
     return {"runs": runs}
 

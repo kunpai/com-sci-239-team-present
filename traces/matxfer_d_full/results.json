@@ -1,0 +1,38 @@
+{
+  "config": {
+    "rounds": 10,
+    "repeats": 3,
+    "trials": 3,
+    "window": 3,
+    "memory_cap_words": 200,
+    "lesson_cap_words": 80,
+    "n": 1024,
+    "reps": 3,
+    "cpus": 4,
+    "mem_limit": "4g",
+    "llm_timeout_s": 300,
+    "compile_timeout_s": 300,
+    "run_timeout_s": 1800,
+    "max_naive_s": 120.0,
+    "model": null,
+    "feedback": "diagnostic"
+  },
+  "naive_ms": {
+    "amd64": 2145.355,
+    "armv7": 4048.888
+  },
+  "refine": [],
+  "arms": [
+    {
+      "arm": "D",
+      "repeat": 1,
+      "first_try_success": true,
+      "trials_to_success": 1,
+      "final_speedup": 175.83435783952135,
+      "first_failure_stage": null,
+      "n_steps": 1,
+      "skipped": false,
+      "note": ""
+    }
+  ]
+}

@@ -197,6 +197,23 @@ const check = (name, ok, extra = '') => { console.log((ok ? 'PASS ' : 'FAIL ') +
   check('reused-memory run: arm A transcript is the single reuse event', (await count('.tx-arm.A .card')) === 1 && (await text('.tx-arm.A .card-head')).includes('memory reused'));
   await nav('#/matxfer_scalar_full2/1/timeline');
   check('reused-memory run: timeline shows the reused memory, no empty attempts', (await text('.col.A')).includes('memory reused') && (await count('.col.A .card')) === 0);
+  // arm D: x86 + A's memory, a run with no B or C
+  await nav('#/matxfer_d_full2');
+  check('arm D run: tiles are A (reused) and D only', (await count('.tile')) === 2 && (await count('.tile.D')) === 1 && (await count('.tile.B, .tile.C')) === 0);
+  check('arm D run: summary lists D on amd64 and no B or C row', (await text('table.sheet')).includes('amd64 · with A') && !(await text('table.sheet')).includes('arm/v7'));
+  await page.click('.tile.D');
+  await page.waitForSelector('.col.D');
+  check('arm D run: timeline has two columns, A then D, with the memory shown', (await count('.col')) === 2 && (await text('.col.D')).includes('Memory shown to the model') && (await count('.col.D .card')) >= 1);
+  check('arm D run: column header says amd64, not arm/v7', (await text('.col.D .col-head')).includes('amd64') && !(await text('.col.D .col-head')).includes('arm/v7'));
+  await nav('#/matxfer_d_full2/1/memory');
+  check('arm D run: memory tab has a D column that matches memory.md', (await text('.col.D')).includes('matches memory.md'));
+  await nav('#/matxfer_d_full2/1/transcript');
+  check('arm D run: transcript tabs are All, A and D', (await page.$$eval('.tx-bar .tabs button', (b) => b.map((x) => x.textContent).join(','))) === 'All arms,A,D');
+  check('arm D run: transcript has D steps', (await count('.tx-arm.D .card')) >= 2);
+  await nav('#/matxfer_d_full2/1/transcript/D');
+  check('arm D deep link filters to arm D', (await count('.tx-arm')) === 1 && (await count('.tx-arm.D')) === 1);
+  await nav('#/matxfer_full2');
+  check('older run still shows B and C and no D', (await count('.tile.D')) === 0 && (await count('.tile.B')) > 0 && (await count('.tile.C')) > 0);
   await nav('#/matxfer_generic/3/transcript');
   check('aborted repeat transcript renders its partial steps or a note without errors', (await count('.error-panel')) === 0 && (await count('.tx-arm')) === 3);
 

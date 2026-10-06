@@ -31,7 +31,7 @@ class RefineRecord:
 
 @dataclass(frozen=True)
 class ArmRecord:
-    """Arm B or C summary for one repeat."""
+    """Arm B, C or D summary for one repeat."""
 
     arm: str
     repeat: int
@@ -53,7 +53,7 @@ def summarize_refine(repeat: int, outcome: RefineOutcome, memory: str | None) ->
 
 
 def summarize_trials(arm: str, repeat: int, outcome: TrialOutcome) -> ArmRecord:
-    """Summarize an arm B or C run."""
+    """Summarize an arm B, C or D run."""
     first = outcome.trials[0]
     idx = outcome.first_success_trial
     winner = outcome.trials[idx - 1] if idx else None
@@ -135,9 +135,9 @@ def _results_md(
     for r in refine:
         per = ", ".join(_fmt(v) for v in r.speedups)
         lines.append(f"| {r.repeat} | {_fmt(r.best_speedup)} | {per} | {r.note} |")
-    lines += ["", "## Arms B (no memory) and C (x86 memory) on arm/v7", ""]
+    lines += ["", "## Arms B (no memory) and C (x86 memory) on arm/v7; D (x86 memory) on amd64", ""]
     lines += ["| arm | First-try success | mean trials to success |", "|---|---|---|"]
-    for arm in ("B", "C"):
+    for arm in (name for name in ("B", "C", "D") if any(a.arm == name for a in arms)):
         recs = [a for a in arms if a.arm == arm]
         lines.append(f"| {arm} | {_rate(recs)} | {_mean_trials(recs)} |")
     lines += [
@@ -178,7 +178,7 @@ def _readme(run_dir: Path, refine: Sequence[RefineRecord], arms: Sequence[ArmRec
         "",
         "Layout: `<arm>/r<repeat>/<NN>-<kind>.json` (kinds: `llm`, `sandbox`, `memory_update`, ...).",
         "`A` = Self-Refine on amd64 (its `memory.md` is the distilled memory), `B` = arm/v7 trials",
-        "without memory, `C` = arm/v7 trials with A's memory.",
+        "without memory, `C` = arm/v7 trials with A's memory, `D` = amd64 trials with A's memory.",
         "",
         "## Scenarios",
         "",

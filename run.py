@@ -69,6 +69,7 @@ def write_run_meta(
     task_path: Path,
     task: str,
     memory_source: Path | None = None,
+    arm_d: bool = False,
 ) -> None:
     """Record config, task statement and environment for reproducibility."""
     meta = {
@@ -77,6 +78,8 @@ def write_run_meta(
         "task_file": _repo_relative(task_path),
         "task_sha256": hashlib.sha256(task.encode()).hexdigest(),
         "memory_source": _repo_relative(memory_source) if memory_source else None,
+        "target": (AMD64 if arm_d else ARMV7).name,
+        "arms": ["D"] if arm_d else ["B", "C"],
         "python": pyplatform.python_version(),
         "claude": _version(["claude", "--version"]),
         "docker": _version(["docker", "--version"]),
@@ -94,10 +97,12 @@ def run_repeat(
     run_fn_for: RunFnFor,
     task: str,
     memory_source: Path | None = None,
+    arm_d: bool = False,
 ) -> tuple[RefineRecord | None, list[ArmRecord]]:
     """One repeat: arm A, then arm B (no memory) and arm C (A's memory) on arm/v7.
 
     With `memory_source` arm A is not run: its memory is read from that earlier run instead.
+    With `arm_d` only arm D runs: A's memory on amd64, the platform it came from.
     """
     a_scope = writer.scope("A", repeat, AMD64.name)
     memory_text: str | None = None
@@ -114,31 +119,50 @@ def run_repeat(
         refine_record = summarize_refine(repeat, outcome, memory_text)
 
     arms: list[ArmRecord] = []
+    if arm_d:
+        arms.append(_memory_arm("D", repeat, task, llm, run_fn_for(AMD64), memory_text, cfg, writer))
+        return refine_record, arms
     b_out = reflexion_trials(
         task, llm, run_fn_for(ARMV7), EpisodicMemory((), cfg.window), cfg,
         writer.scope("B", repeat, ARMV7.name),
     )  # fmt: skip
     arms.append(summarize_trials("B", repeat, b_out))
-    if memory_text is None:
-        note = "no correct candidate on amd64, so no memory to transfer"
-        arms.append(skipped_arm("C", repeat, note))
-    else:
-        c_out = reflexion_trials(
-            task, llm, run_fn_for(ARMV7), EpisodicMemory((memory_text,), cfg.window), cfg,
-            writer.scope("C", repeat, ARMV7.name),
-        )  # fmt: skip
-        arms.append(summarize_trials("C", repeat, c_out))
+    arms.append(_memory_arm("C", repeat, task, llm, run_fn_for(ARMV7), memory_text, cfg, writer))
     return refine_record, arms
 
 
-def _source_repeats(source: Path) -> list[int]:
-    """Repeat numbers for which `source` stored an arm A memory."""
-    found = sorted(
-        int(p.parent.name[1:]) for p in source.glob("A/r[0-9]*/memory.md")
-    )
+def _memory_arm(
+    arm: str,
+    repeat: int,
+    task: str,
+    llm: LLM,
+    run_fn: RunFn,
+    memory_text: str | None,
+    cfg: Config,
+    writer: TraceWriter,
+) -> ArmRecord:
+    """Reflexion trials seeded with A's memory (arm C on arm/v7, arm D on amd64)."""
+    if memory_text is None:
+        return skipped_arm(arm, repeat, "no correct candidate on amd64, so no memory to transfer")
+    platform = AMD64 if arm == "D" else ARMV7
+    out = reflexion_trials(
+        task, llm, run_fn, EpisodicMemory((memory_text,), cfg.window), cfg,
+        writer.scope(arm, repeat, platform.name),
+    )  # fmt: skip
+    return summarize_trials(arm, repeat, out)
+
+
+def _source_repeats(source: Path, only: Sequence[int] | None = None) -> list[int]:
+    """Repeat numbers for which `source` stored an arm A memory (optionally just `only`)."""
+    found = sorted(int(p.parent.name[1:]) for p in source.glob("A/r[0-9]*/memory.md"))
     if not found:
         raise FileNotFoundError(f"no A/r*/memory.md under {source}: no memory to reuse")
-    return found
+    if only is None:
+        return found
+    missing = sorted(set(only) - set(found))
+    if missing:
+        raise FileNotFoundError(f"repeat {missing} has no stored memory under {source}")
+    return sorted(set(only))
 
 
 def run_experiment(
@@ -150,23 +174,32 @@ def run_experiment(
     run_id: str,
     task_path: Path | None = None,
     memory_source: Path | None = None,
+    arm_d: bool = False,
+    only_repeats: Sequence[int] | None = None,
 ) -> Path:
     """Run all repeats, tolerating LLM failures per repeat, and write the report.
 
     With `memory_source` (an earlier run directory) the repeats are the ones that run stored a
-    memory for, and arm A is not re-run.
+    memory for (or `only_repeats` among them), and arm A is not re-run. With `arm_d` the
+    only arm run is D: A's memory on amd64.
     """
     task = load_task(task_path)
-    repeats = _source_repeats(memory_source) if memory_source else list(range(1, cfg.repeats + 1))
+    repeats = (
+        _source_repeats(memory_source, only_repeats)
+        if memory_source
+        else list(range(1, cfg.repeats + 1))
+    )
     writer = TraceWriter(out_dir, run_id)
-    write_run_meta(writer.run_dir, cfg, naive_ms, task_path or TASK_PATH, task, memory_source)
+    write_run_meta(
+        writer.run_dir, cfg, naive_ms, task_path or TASK_PATH, task, memory_source, arm_d
+    )
     refine_records: list[RefineRecord] = []
     arm_records: list[ArmRecord] = []
     for repeat in repeats:
         logger.info("repeat %d (%d total)", repeat, len(repeats))
         try:
             refine_record, arms = run_repeat(
-                repeat, cfg, llm, writer, run_fn_for, task, memory_source
+                repeat, cfg, llm, writer, run_fn_for, task, memory_source, arm_d
             )
         except (LLMError, SandboxError) as exc:
             kind = "llm_error" if isinstance(exc, LLMError) else "infra_error"
@@ -240,6 +273,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--reuse-memory-from", type=Path,
         help="earlier run directory whose arm A memories are reused (skips arm A)",
     )  # fmt: skip
+    parser.add_argument(
+        "--only-repeats", type=int, nargs="+",
+        help="with --reuse-memory-from: only these repeat numbers",
+    )  # fmt: skip
+    parser.add_argument(
+        "--arm-d", action="store_true",
+        help="run only arm D (A's memory on amd64, the platform it came from) instead of B and C",
+    )  # fmt: skip
     parser.add_argument("--out", default="traces")
     parser.add_argument("--run-id")
     parser.add_argument("--task-file", type=Path, help="task statement (default task/prompt_task.md)")
@@ -257,6 +298,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_dir = run_experiment(
         cfg, llm, run_fn_for, naive, Path(args.out), run_id,
         task_path=args.task_file, memory_source=args.reuse_memory_from,
+        arm_d=args.arm_d, only_repeats=args.only_repeats,
     )  # fmt: skip
     logger.info("done: %s", run_dir / "results.md")
     return 0

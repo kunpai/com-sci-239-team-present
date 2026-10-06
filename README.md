@@ -6,7 +6,7 @@ It was built for the CS 239 (Agentic Software Engineering, Fall 2026) team prese
 
 ## Contributions
 
-- **Three-arm experiment:** arm A refines a matmul with Self-Refine on amd64 for 10 rounds and distills the result into `memory.md`; arm B runs Reflexion trials on arm/v7 with no memory; arm C runs the identical loop with A's memory in the prompt. Memory is the only variable between B and C.
+- **Three-arm experiment:** arm A refines a matmul with Self-Refine on amd64 for 10 rounds and distills the result into `memory.md`; arm B runs Reflexion trials on arm/v7 with no memory; arm C runs the identical loop with A's memory in the prompt. Memory is the only variable between B and C. An optional arm D runs the same loop with A's memory on amd64, the platform the memory came from, as a same-platform control.
 - **Isolated Claude Code backend:** each call is a headless `claude -p` with built-in tools, MCP servers, slash commands, user settings, and session persistence all turned off, so the model sees the task text and nothing else.
 - **Sandboxed measurement:** candidates are compiled and run in per-platform `gcc:13` containers (no network, pinned CPUs, memory and process limits), checked for correctness three ways, and timed best-of-3. Speedup is a same-platform ratio against a naive `-O2` triple loop.
 - **Complete traces:** one JSON file per prompt, reply, sandbox result, and memory update, grouped by run, arm, and repeat.
@@ -46,7 +46,7 @@ viewer/
   template.html            the UI (vanilla JS and CSS, no dependencies)
   index.html               generated; rebuild after every new run
   browser_check.js         scripted browser regression (optional, needs puppeteer-core)
-tests/                     116 tests (pytest); canned C sources live in tests/canned/
+tests/                     127 tests (pytest); canned C sources live in tests/canned/
 plan/                      design docs, implementation plans, and the progress ledger
 traces/                    one directory per run (see "Trace layout")
 ```
@@ -87,6 +87,9 @@ uv run python run.py --task-file task/prompt_task_generic.md --run-id my_generic
 
 # B and C only, reusing the memories stored by an earlier run (arm A is skipped)
 uv run python run.py --reuse-memory-from traces/my_full --run-id my_full_again
+
+# arm D only: A's memory from repeat 1 of an earlier run, on amd64 (no B, no C)
+uv run python run.py --arm-d --reuse-memory-from traces/my_full --only-repeats 1 --run-id my_d
 ```
 
 | Flag | Meaning | Default |
@@ -100,6 +103,8 @@ uv run python run.py --reuse-memory-from traces/my_full --run-id my_full_again
 | `--feedback` | `diagnostic` or `scalar` | `diagnostic` |
 | `--task-file` | task statement file | `task/prompt_task.md` |
 | `--reuse-memory-from` | earlier run directory whose A memories are reused | none |
+| `--only-repeats` | with `--reuse-memory-from`: only these repeat numbers | all stored |
+| `--arm-d` | run only arm D (A's memory on amd64) instead of B and C | off |
 | `--out`, `--run-id` | trace root and run name | `traces`, timestamped |
 
 The full experiment made 76 Claude calls and cost about $17 in the last run (about 55 minutes of wall time, since runs are sequential to keep the CPU-pinned timings clean). A single failed repeat does not lose the others: an `LLMError` or `SandboxError` is logged as `llm_error` or `infra_error` for that repeat, and the run moves on.
@@ -114,6 +119,7 @@ traces/<run>/
   A/r<k>/NN-<kind>.json    arm A steps; memory.md is the stored memory
   B/r<k>/NN-<kind>.json    arm B trials
   C/r<k>/NN-<kind>.json    arm C trials
+  D/r<k>/NN-<kind>.json    arm D trials (only in runs made with --arm-d)
   run/r<k>/NN-llm_error.json    aborted repeats
 ```
 
@@ -171,7 +177,7 @@ For example, `index.html#/matxfer_full2/1/timeline/C/0` opens the first C trial 
 
 **Safety.** Trace text is untrusted model output. The UI renders it only through DOM text nodes (never `innerHTML`), and the embedded JSON escapes `&`, `<`, `>`, U+2028, and U+2029, so a `</script>` inside a reply cannot break the page. `viewer/browser_check.js` includes a hostile-text case that guards this.
 
-**Browser regression (optional).** `viewer/browser_check.js` drives Google Chrome through the views above (69 checks). It needs `puppeteer-core` and a hostile-text fixture page:
+**Browser regression (optional).** `viewer/browser_check.js` drives Google Chrome through the views above (78 checks). It needs `puppeteer-core` and a hostile-text fixture page:
 
 ```bash
 npm i puppeteer-core
@@ -181,7 +187,7 @@ NODE_PATH=$PWD/node_modules node viewer/browser_check.js "$PWD" /tmp/shots /path
 ## Tests
 
 ```bash
-uv run pytest -q -m "not llm"      # 116 tests; the sandbox tests need Docker
+uv run pytest -q -m "not llm"      # 127 tests; the sandbox tests need Docker
 uv run pytest -q -m llm            # live Claude calls; spends tokens
 uv run ruff check . && uv run mypy src run.py
 ```
@@ -194,6 +200,7 @@ The suite uses a scripted `FakeLLM` and canned C sources (wrong result, infinite
 - **Prompt and harness drift:** `matxfer_full` predates the harness fixes (CPU pinning, the odd-size check, Docker error attribution) and is marked "older harness" in the viewer. `matxfer_full2` and `matxfer_generic` use the fixed harness.
 - **Generic ablation:** `matxfer_generic` completed one of three repeats. Two aborted when a Claude call stalled past the 300 s timeout. The retry backoff added since then addresses this, but those traces predate it.
 - **Memory text:** A's memories sometimes assert AVX-512 behavior that cannot occur under Rosetta, so the narrative inside a memory is not reliable evidence about the hardware. The harness prefixes each entry with `- `, which produces a double bullet in C's memory block; the viewer shows it as is.
+- **Arm D:** `matxfer_d_full` and `matxfer_d_full2` ran D on repeat 1 of `matxfer_full` and `matxfer_full2`. Both passed on the first try (176x and 154x over the amd64 naive loop), and neither attempt used `immintrin.h`. Two chains is a sanity check on the memory in its home environment, not a comparison.
 - **Runs that reuse memory:** in a run made with `--reuse-memory-from`, arm A was not re-run, so its column shows the reused `memory.md` and a "not re-run" note instead of attempts, and its transcript is the single `memory_reused` event.
 - **Timing artifacts:** buffers are shared across timing repetitions, and emulated timings carry 10 to 20 percent noise.
 - **Deviations from the papers:** A's feedback sees measured results (closer to a grounded evaluator than pure self-feedback), 10 rounds exceeds Self-Refine's 4, the final candidate is the best correct one rather than the last, and the memory is written from a success whereas Reflexion writes reflections from failures.

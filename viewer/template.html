@@ -8,7 +8,7 @@
 :root {
   --bg: #f4efe4; --panel: #fffcf5; --panel2: #f9f4e8; --ink: #1f1c15; --muted: #6a6354;
   --line: #d9d0bc; --rule: #e8dfca; --shadow: rgba(60, 45, 10, .12);
-  --A: #b4690e; --B: #17707a; --C: #34459a;
+  --A: #b4690e; --B: #17707a; --C: #34459a; --D: #9a3f6b;
   --ok: #2c7a4b; --ok-soft: #dcefe2; --bad: #c4311d; --bad-soft: #f6d9d3; --warn: #8f5f00; --warn-soft: #f6e8c3;
   --code-bg: #fbf8ef; --add: #d9efdc; --del: #f6d9d3;
   --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
@@ -20,7 +20,7 @@
 :root[data-theme="dark"] {
   --bg: #15130e; --panel: #1d1a13; --panel2: #231f17; --ink: #ece6d6; --muted: #a39b88;
   --line: #3a3529; --rule: #2d2920; --shadow: rgba(0, 0, 0, .5);
-  --A: #e6a24b; --B: #4cc7c0; --C: #8fa3f5;
+  --A: #e6a24b; --B: #4cc7c0; --C: #8fa3f5; --D: #e58bb4;
   --ok: #6cc785; --ok-soft: #1d3a29; --bad: #ff8070; --bad-soft: #4a211b; --warn: #e6b94a; --warn-soft: #3d3112;
   --code-bg: #191610; --add: #1d3a29; --del: #4a211b;
   color-scheme: dark;
@@ -71,7 +71,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .sheet th { font: 700 10.5px/1 var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--muted); background: var(--panel2); }
 .sheet td.num { font-family: var(--mono); }
 .stamp { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; font: 700 13px var(--serif); color: #fff; }
-.stamp.A { background: var(--A); } .stamp.B { background: var(--B); } .stamp.C { background: var(--C); }
+.stamp.A { background: var(--A); } .stamp.B { background: var(--B); } .stamp.C { background: var(--C); } .stamp.D { background: var(--D); }
 :root[data-theme="dark"] .stamp { color: #15130e; }
 
 /* chain rows (overview) */
@@ -80,10 +80,10 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .chain-top h3 { font-size: 20px; }
 .banner { padding: 8px 12px; margin: 0 0 10px; border-left: 4px solid var(--bad); background: var(--bad-soft); font-size: 13.5px; }
 .banner.warn { border-color: var(--warn); background: var(--warn-soft); }
-.cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.cards3 { display: grid; grid-template-columns: repeat(var(--n, 3), 1fr); gap: 12px; }
 .tile { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--line); border-top: 4px solid var(--arm); background: var(--panel2); min-height: 118px; transition: transform .15s, box-shadow .15s; }
 .tile:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--shadow); }
-.tile.A { --arm: var(--A); } .tile.B { --arm: var(--B); } .tile.C { --arm: var(--C); }
+.tile.A { --arm: var(--A); } .tile.B { --arm: var(--B); } .tile.C { --arm: var(--C); } .tile.D { --arm: var(--D); }
 .tile.empty { opacity: .55; border-style: dashed; cursor: default; }
 .tile .t-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .tile .t-title { font: 600 15px var(--serif); }
@@ -98,9 +98,9 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; margin: 0; }
 .tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .tabs button { padding: 5px 14px; border: 0; background: var(--panel); font-size: 13px; }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
-.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.cols { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 18px; align-items: start; }
 .col-head { display: flex; gap: 10px; align-items: center; padding-bottom: 8px; margin-bottom: 12px; border-bottom: 3px solid var(--arm); }
-.col.A { --arm: var(--A); } .col.B { --arm: var(--B); } .col.C { --arm: var(--C); }
+.col.A { --arm: var(--A); } .col.B { --arm: var(--B); } .col.C { --arm: var(--C); } .col.D { --arm: var(--D); }
 .col-head h2 { font-size: 20px; }
 .col-head .sub { font-size: 12.5px; color: var(--muted); }
 .rail { position: relative; padding-left: 16px; }
@@ -238,7 +238,14 @@ const ARMS = {
   A: { name: 'Self-Refine', where: 'amd64', blurb: 'refines for 10 rounds, then writes memory.md' },
   B: { name: 'Reflexion trials', where: 'arm/v7', blurb: 'no memory' },
   C: { name: 'Reflexion trials', where: 'arm/v7', blurb: "with A's memory" },
+  D: { name: 'Reflexion trials', where: 'amd64', blurb: "with A's memory, same platform as A" },
 };
+const MEM_ARMS = ['C', 'D'];  // the arms that start from A's memory
+// the arms a run actually has: A, then B/C/D where any chain has data (older runs: B and C)
+function armKeys(run) {
+  const have = ['B', 'C', 'D'].filter((k) => run.repeats.some((r) => r[k]));
+  return ['A', ...(have.length ? have : ['B', 'C'])];
+}
 const STAGE = { ok: 'ok', compile: 'compile error', incorrect: 'wrong result', run: 'crashed', timeout: 'timeout',
   flags: 'flags rejected', parse: 'unparseable reply', unknown: 'unknown' };
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -284,7 +291,7 @@ function parseHash() {
     run: p[0] || null,
     repeat: p[1] && /^\d+$/.test(p[1]) ? Number(p[1]) : null,
     view: p[2] === 'memory' ? 'memory' : p[2] === 'transcript' ? 'transcript' : 'timeline',
-    arm: ['A', 'B', 'C'].includes(p[3]) ? p[3] : null,
+    arm: ['A', 'B', 'C', 'D'].includes(p[3]) ? p[3] : null,
     idx: p[4] != null && /^\d+$/.test(p[4]) ? Number(p[4]) : null,
   };
 }
@@ -545,13 +552,13 @@ function summaryTable(run) {
       h('tr', null, h('td', null, h('span', { class: 'stamp A' }, 'A'), ' Self-Refine · amd64 · best speedup per chain'),
         h('td', { class: 'num', colspan: 4 }, a.length ? a.map((x) => h('span', { class: x.aborted ? 'chip warn' : null, style: 'margin-right:14px' },
           x.aborted ? `${fmtX(x.best)} (chain ${x.n}, aborted)` : fmtX(x.best))) : '–')),
-      rowFor('B'), rowFor('C')));
+      armKeys(run).slice(1).map(rowFor)));
 }
 function tileFor(run, rep, key) {
   const arm = rep[key];
   const base = { class: 'tile ' + key + (arm ? '' : ' empty') };
   const head = h('div', { class: 't-head' }, h('span', { class: 'stamp ' + key }, key), h('div', null, h('div', { class: 't-title' }, ARMS[key].name), h('div', { class: 't-sub' }, ARMS[key].where + ' · ' + ARMS[key].blurb)));
-  if (!arm) return h('div', base, head, h('div', { class: 't-sub' }, rep.errors.length ? 'aborted before this arm' : key === 'C' && rep.A && !rep.A.memory_md ? 'skipped — no correct candidate on amd64, so no memory' : 'no data'));
+  if (!arm) return h('div', base, head, h('div', { class: 't-sub' }, rep.errors.length ? 'aborted before this arm' : MEM_ARMS.includes(key) && rep.A && !rep.A.memory_md ? 'skipped — no correct candidate on amd64, so no memory' : 'no data'));
   const go2 = () => go({ run: run.id, repeat: rep.repeat, view: 'timeline', arm: key, idx: 0 });
   if (key === 'A' && arm.reused_from) {
     return h('button', { ...base, type: 'button', onclick: go2 }, head,
@@ -569,7 +576,7 @@ function tileFor(run, rep, key) {
     h('div', { class: 'chips', style: 'margin:0 0 8px' }, stagePill(info.first.result), h('span', { class: 'chip' }, info.firstOk ? 'first try' : `first try failed`)),
     h('div', { class: 'big' }, fmtX(info.final)),
     h('div', { class: 't-sub' }, info.winTrial ? `succeeded at trial ${info.winTrial} of ${info.n}` : `never succeeded (${info.n} trials)`),
-    key === 'C' && arm.memory_seen != null ? h('div', { class: 'chips' }, h('span', { class: 'chip' }, `memory shown: ${words(stripBullet(arm.memory_seen))} words`)) : null);
+    MEM_ARMS.includes(key) && arm.memory_seen != null ? h('div', { class: 'chips' }, h('span', { class: 'chip' }, `memory shown: ${words(stripBullet(arm.memory_seen))} words`)) : null);
 }
 function overview(ctx) {
   const run = ctx.run, root = h('div');
@@ -581,7 +588,7 @@ function overview(ctx) {
           h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'transcript' }) }, 'Transcript'), ' ',
           h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'timeline' }) }, 'Open chain'))),
       rep.errors.map((e) => errorBanner(e)),
-      h('div', { class: 'cards3' }, tileFor(run, rep, 'A'), tileFor(run, rep, 'B'), tileFor(run, rep, 'C'))));
+      h('div', { class: 'cards3', style: `--n:${armKeys(run).length}` }, armKeys(run).map((k) => tileFor(run, rep, k)))));
   });
   if (!run.repeats.length) root.append(h('div', { class: 'empty-note' }, 'This run has no repeats.'));
   return root;
@@ -613,7 +620,7 @@ function emptyCol(key, rep, text) {
   return h('section', { class: 'col ' + key }, colHead(key), h('div', { class: 'empty-note' }, text));
 }
 function timelineView(run, rep) {
-  const cols = h('div', { class: 'cols' });
+  const cols = h('div', { class: 'cols', style: `--n:${armKeys(run).length}` });
   const filt = (res) => !state.fail || !isOk(res);
   // A
   if (!rep.A) cols.append(emptyCol('A', rep, rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : 'No data.'));
@@ -632,11 +639,11 @@ function timelineView(run, rep) {
         h('button', { class: 'btn', type: 'button', onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'memory' }) }, 'Open memory panel')) : null);
     cols.append(col);
   }
-  for (const key of ['B', 'C']) {
+  for (const key of armKeys(run).slice(1)) {
     const arm = rep[key];
-    if (!arm) { cols.append(emptyCol(key, rep, rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : key === 'C' && rep.A && rep.A.memory_md == null && rep.A.attempts.length ? 'Skipped — arm A produced no correct candidate, so there was no memory to transfer.' : 'No data.')); continue; }
+    if (!arm) { cols.append(emptyCol(key, rep, rep.errors.length ? 'No steps were recorded for this arm (the repeat aborted).' : MEM_ARMS.includes(key) && rep.A && rep.A.memory_md == null && rep.A.attempts.length ? 'Skipped — arm A produced no correct candidate, so there was no memory to transfer.' : 'No data.')); continue; }
     const col = h('section', { class: 'col ' + key }, colHead(key));
-    col.append(h('div', { class: 'block' }, h('h4', null, key === 'C' ? "Memory shown to the model (exactly as in the first prompt)" : 'Memory shown to the model'),
+    col.append(h('div', { class: 'block' }, h('h4', null, MEM_ARMS.includes(key) ? "Memory shown to the model (exactly as in the first prompt)" : 'Memory shown to the model'),
       arm.memory_seen != null ? h('div', { class: 'index-card' }, h('pre', null, arm.memory_seen)) : h('div', { class: 'index-card none' }, 'none — no memory block in the prompt')));
     const rail = h('div', { class: 'rail' });
     arm.trials.forEach((t, i) => { if (filt(t.result)) rail.append(trialCard(run, rep, key, t, i ? arm.trials[i - 1] : null, i)); });
@@ -650,7 +657,7 @@ function timelineView(run, rep) {
 /* ---------- memory panel ---------- */
 function stripBullet(s) { return s.replace(/^- /, ''); }
 function memoryView(run, rep) {
-  const cols = h('div', { class: 'cols' });
+  const cols = h('div', { class: 'cols', style: `--n:${armKeys(run).length}` });
   // A: stored memory
   const a = rep.A;
   const colA = h('section', { class: 'col A' }, colHead('A', 'what the refinement run wrote down'));
@@ -666,26 +673,29 @@ function memoryView(run, rep) {
       { label: 'Shorten prompt', text: a.memory_shorten && a.memory_shorten.prompt }, { label: 'Shorten reply', text: a.memory_shorten && a.memory_shorten.text }]))));
   }
   cols.append(colA);
-  // B
-  const colB = h('section', { class: 'col B' }, colHead('B', 'no memory block; only its own lessons'));
-  if (!rep.B) colB.append(h('div', { class: 'empty-note' }, 'No data.'));
-  else perTrialMemory(colB, rep.B, 'B');
-  cols.append(colB);
-  // C
-  const colC = h('section', { class: 'col C' }, colHead('C', "A's memory, then its own lessons"));
-  if (!rep.C) colC.append(h('div', { class: 'empty-note' }, 'Skipped or no data.'));
-  else {
-    const seen = rep.C.memory_seen;
-    if (seen != null) {
-      const same = a && a.memory_md != null && stripBullet(seen).trim() === stripBullet(a.memory_md.trim()).trim() || (a && a.memory_md != null && seen.trim() === ('- ' + a.memory_md.trim()));
-      colC.append(h('div', { class: 'mem-meta' }, h('span', { class: 'chip' }, `${words(stripBullet(seen))} words shown`),
-        same ? h('span', { class: 'chip ok' }, 'matches memory.md (plus the harness bullet)') : h('span', { class: 'chip bad' }, 'differs from memory.md'),
-        /^- (- |\*\*)/.test(seen) && /^- /.test(a && a.memory_md || '') ? h('span', { class: 'chip warn' }, 'double bullet artifact') : null),
-        h('div', { class: 'index-card' }, h('h4', null, 'shown to the model (verbatim)'), h('pre', null, seen)));
+  for (const key of armKeys(run).slice(1)) {
+    if (!MEM_ARMS.includes(key)) {  // B: no memory block
+      const colB = h('section', { class: 'col ' + key }, colHead(key, 'no memory block; only its own lessons'));
+      if (!rep[key]) colB.append(h('div', { class: 'empty-note' }, 'No data.'));
+      else perTrialMemory(colB, rep[key], key);
+      cols.append(colB);
+      continue;
     }
-    perTrialMemory(colC, rep.C, 'C');
+    const colM = h('section', { class: 'col ' + key }, colHead(key, "A's memory, then its own lessons"));
+    if (!rep[key]) colM.append(h('div', { class: 'empty-note' }, 'Skipped or no data.'));
+    else {
+      const seen = rep[key].memory_seen;
+      if (seen != null) {
+        const same = a && a.memory_md != null && stripBullet(seen).trim() === stripBullet(a.memory_md.trim()).trim() || (a && a.memory_md != null && seen.trim() === ('- ' + a.memory_md.trim()));
+        colM.append(h('div', { class: 'mem-meta' }, h('span', { class: 'chip' }, `${words(stripBullet(seen))} words shown`),
+          same ? h('span', { class: 'chip ok' }, 'matches memory.md (plus the harness bullet)') : h('span', { class: 'chip bad' }, 'differs from memory.md'),
+          /^- (- |\*\*)/.test(seen) && /^- /.test(a && a.memory_md || '') ? h('span', { class: 'chip warn' }, 'double bullet artifact') : null),
+          h('div', { class: 'index-card' }, h('h4', null, 'shown to the model (verbatim)'), h('pre', null, seen)));
+      }
+      perTrialMemory(colM, rep[key], key);
+    }
+    cols.append(colM);
   }
-  cols.append(colC);
   return cols;
 }
 function perTrialMemory(col, arm, key) {
@@ -696,7 +706,7 @@ function perTrialMemory(col, arm, key) {
     if (!t.memory.length) box.append(h('div', { class: 'index-card none' }, 'none'));
     t.memory.forEach((m, i) => {
       const li = lessons.indexOf(m);  // an entry equal to an earlier lesson is that lesson; anything else came in with the run
-      const origin = li >= 0 ? `lesson from trial ${li + 1}` : key === 'C' ? 'carried in from arm A' : 'earlier entry';
+      const origin = li >= 0 ? `lesson from trial ${li + 1}` : MEM_ARMS.includes(key) ? 'carried in from arm A' : 'earlier entry';
       box.append(h('div', { class: 'index-card' + (li >= 0 ? ' lesson' : '') }, h('h4', null, `entry ${i + 1} · ${origin}`), h('pre', null, m)));
     });
     if (t.lesson) box.append(noteBlock(`Lesson written after trial ${t.trial} (added to memory)`, t.lesson));
@@ -797,7 +807,7 @@ function download(name, text, mime) {
 }
 function transcriptView(run, rep, ctx) {
   if (ctx.arm && ctx.idx != null) { Object.assign(tState.kinds, { llm: true, sandbox: true, memory: true }); tState.query = ''; }  // a link to one step must show it
-  const root = h('div'), arms = ctx.arm ? [ctx.arm] : ['A', 'B', 'C'];
+  const root = h('div'), arms = ctx.arm ? [ctx.arm] : armKeys(run);
   const list = h('div'), stats = h('span', { class: 'tx-stats' });
   let searchTimer = null;
   const shown = () => arms.map((k) => [k, (rep.transcript[k] || []).filter((e) => tState.kinds[kindGroup(e)] && matches(e, tState.query))]);
@@ -822,7 +832,7 @@ function transcriptView(run, rep, ctx) {
     }
     stats.textContent = `${turns} steps · ${calls} Claude calls · $${cost.toFixed(2)}`;
   };
-  const armTabs = h('span', { class: 'tabs' }, [null, 'A', 'B', 'C'].map((k) => h('button', { type: 'button', 'aria-pressed': String((ctx.arm || null) === k),
+  const armTabs = h('span', { class: 'tabs' }, [null, ...armKeys(run)].map((k) => h('button', { type: 'button', 'aria-pressed': String((ctx.arm || null) === k),
     onclick: () => go({ run: run.id, repeat: rep.repeat, view: 'transcript', arm: k }) }, k || 'All arms')));
   const kindBox = (k, label) => h('label', null, h('input', { type: 'checkbox', checked: tState.kinds[k], onchange: (ev) => { tState.kinds[k] = ev.target.checked; renderList(); } }), label);
   const search = h('input', { type: 'search', placeholder: 'find text in this chain…', 'aria-label': 'Find text in this chain', value: tState.query,
