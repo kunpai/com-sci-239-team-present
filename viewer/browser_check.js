@@ -216,9 +216,9 @@ const check = (name, ok, extra = '') => { console.log((ok ? 'PASS ' : 'FAIL ') +
   check('a run with no D keeps its three tiles and has no D row', (await count('.tile.D')) === 0 && (await count('.tile.B')) > 0 && (await count('.tile.C')) > 0 && !(await text('table.sheet')).includes('same platform as A'));
   // arm D attached to the run its memory came from
   await nav('#/matxfer_full2');
-  check('source run shows D: summary row and a tile on chain 1', (await text('table.sheet')).includes('same platform as A') && (await count('.tile.D:not(.empty)')) === 1);
-  check('attached D says it was run separately in its own run', (await text('.tile.D:not(.empty)')).includes('run separately as matxfer_d_full2'));
-  check('chains without D say so instead of showing an error', (await page.$$eval('.tile.D.empty', (els) => els.length > 0 && els.every((e) => e.textContent.includes('not run for this chain')))));
+  check('source run shows D: summary row and a D tile on each of its three chains', (await text('table.sheet')).includes('same platform as A') && (await count('.tile.D:not(.empty)')) === 3);
+  check('attached D says which run it was made in', (await page.$$eval('.tile.D', (els) => els.every((e) => /run separately as matxfer_d_full2(_r23)?/.test(e.textContent)))));
+  check('every chain of the source run has a finished D tile, none empty', (await count('.tile.D.empty')) === 0);
   check('attached D leaves the B and C tiles of all three chains in place', (await count('.tile.B')) === 3 && (await count('.tile.C')) === 3);
   await nav('#/matxfer_full2/1/timeline/A/0');
   check('timeline/A/0 shows four columns A B C D', (await count('.col')) === 4 && (await count('.col.D')) === 1);
@@ -230,7 +230,7 @@ const check = (name, ok, extra = '') => { console.log((ok ? 'PASS ' : 'FAIL ') +
   await nav('#/matxfer_full2/1/transcript');
   check('source run transcript has a D tab and D steps', (await page.$$eval('.tx-bar .tabs button', (b) => b.map((x) => x.textContent).join(','))) === 'All arms,A,B,C,D' && (await count('.tx-arm.D .card')) >= 2);
   await nav('#/matxfer_full2/2/timeline');
-  check('a chain without D still renders A B C and an empty D column', (await count('.col.A')) === 1 && (await count('.col.B')) === 1 && (await count('.col.C')) === 1 && (await count('.col.D')) === 1);
+  check('chain 2 of the source run renders A B C D with its own D trial', (await count('.col.A')) === 1 && (await count('.col.B')) === 1 && (await count('.col.C')) === 1 && (await count('.col.D .card')) >= 1 && (await text('.col.D')).includes('run separately as matxfer_d_full2_r23'));
   await nav('#/matxfer_generic/3/transcript');
   check('aborted repeat transcript renders its partial steps or a note without errors', (await count('.error-panel')) === 0 && (await count('.tx-arm')) === 3);
 

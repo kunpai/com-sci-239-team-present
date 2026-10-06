@@ -1,0 +1,66 @@
+{
+  "arm": "D",
+  "repeat": 2,
+  "step": 1,
+  "kind": "llm",
+  "memory": [
+    "Notes (matmul, n\u22481000, gcc, OpenMP, AVX-512):\n\n- Baseline (Attempt 0): 6\u00d716 ymm BLIS kernel, packed A and B, 7.1 ms.\n- Unpacked A (read rows with stride n): 6.6 ms. Global A pre-pack (8.3) and per-task A repack (9.2) both hurt.\n- KCMAX 384 slightly beat 320 (6.5 ms). 512 gave 10.3 ms because the B panel overflowed L1. KC=192 with 8\u00d732 zmm gave no gain.\n- AVX-512 only helped with a 12\u00d732 zmm kernel: 24 accumulators, unpacked A, zero-padded ebuf for the row edge, NV=1 path for column edges. 6.1 ms.\n- Best so far (Attempt 10), 5.9 ms: `ir` loop outer, `jp` inner, so A rows stay in L1.\n- Neutral or harmful: `-mno-avx512f`, 16\u00d7 manual unroll with prefetches, `-funroll-loops` with a big body, masked edge stores (neutral).\n- Try next, one at a time:\n  - KCMAX ~192\u2013224 with 12\u00d732 (B panel fits L1 vs. extra C pass).\n  - Pack B per kb slice to drop the serial pre-pack barrier.\n  - 8-column masked edge.\n  - Tune MC and PPCMAX.\n  - Pack the 12-row A strip contiguously per (task, kb), in case n=1024 aliasing matters."
+  ],
+  "role": "generate",
+  "prompt": "You are optimizing a C function for speed.\n\nWrite a single C source file that defines\n\n    void matmul(const float *A, const float *B, float *C, int n);\n\nwhich computes C = A * B for square n x n matrices of single-precision (float) values stored in row-major order, so element (i, j) of A is A[i*n + j]. The three buffers do not overlap. C is not initialized: your function must write every element of C.\n\nRequirements:\n- The result must be correct for every positive n, not only for convenient sizes. Results are checked against a reference with a relative tolerance of about 1e-3, so reordering floating-point sums is fine.\n- The benchmark runs large matrices (around a thousand rows and columns) and reports the best of several runs, so optimize for large n.\n- The file is compiled with gcc and linked, together with a fixed benchmark harness that calls matmul, against the C math library and pthreads. Do not define main. Only the C standard library, libm, pthreads and OpenMP are available.\n- You choose the compiler flags. They are passed to gcc as given (for example -O3 or -fopenmp). Flags that set the output file, add include or library paths, or pass options through to the linker are rejected.\n- The program is built and run inside a Linux container, not on the machine you are running on. The CPU is not disclosed.\n- Optimize for speed on the machine this runs on.\n\nReply format. Reply with the complete source file in exactly one fenced block:\n\n```c\n...\n```\n\nfollowed on its own line by the compiler flags, for example:\n\nFLAGS: -O3 -march=native\n\nDo not write any other code block or any other line starting with FLAGS:.\n\nMemory from earlier sessions:\n- Notes (matmul, n\u22481000, gcc, OpenMP, AVX-512):\n\n- Baseline (Attempt 0): 6\u00d716 ymm BLIS kernel, packed A and B, 7.1 ms.\n- Unpacked A (read rows with stride n): 6.6 ms. Global A pre-pack (8.3) and per-task A repack (9.2) both hurt.\n- KCMAX 384 slightly beat 320 (6.5 ms). 512 gave 10.3 ms because the B panel overflowed L1. KC=192 with 8\u00d732 zmm gave no gain.\n- AVX-512 only helped with a 12\u00d732 zmm kernel: 24 accumulators, unpacked A, zero-padded ebuf for the row edge, NV=1 path for column edges. 6.1 ms.\n- Best so far (Attempt 10), 5.9 ms: `ir` loop outer, `jp` inner, so A rows stay in L1.\n- Neutral or harmful: `-mno-avx512f`, 16\u00d7 manual unroll with prefetches, `-funroll-loops` with a big body, masked edge stores (neutral).\n- Try next, one at a time:\n  - KCMAX ~192\u2013224 with 12\u00d732 (B panel fits L1 vs. extra C pass).\n  - Pack B per kb slice to drop the serial pre-pack barrier.\n  - 8-column masked edge.\n  - Tune MC and PPCMAX.\n  - Pack the 12-row A strip contiguously per (task, kb), in case n=1024 aliasing matters.\n",
+  "text": "Untested: I'm on macOS and the target CPU is unknown. The file uses a 12\u00d732 AVX-512 kernel when the compiler supports it, a 6\u00d716 AVX2+FMA kernel otherwise, and plain C as a last fallback. It runs in a single parallel region with no serial B pre-pack, and the packed-B buffer is reused across calls. Each task covers 48 rows by 256 columns, and the per-thread working set is sized for L1 and L2. The 12-row A strip is copied to a separate buffer only for the bottom-edge rows or when n is a multiple of 512, to avoid cache aliasing at n=1024.\n\n```c\n#include <stdlib.h>\n#include <string.h>\n#if defined(__AVX512F__) || defined(__AVX2__)\n#include <immintrin.h>\n#endif\n\n#define KC 256\n#define NC 256\n#define MC 48\n\n#if defined(__AVX512F__)\n#define MR 12\n#define NR 32\n#define DECL(r) __m512 c##r##_0, c##r##_1;\n#define ZERO(r) c##r##_0 = _mm512_setzero_ps(); c##r##_1 = _mm512_setzero_ps();\n#define LOAD(r) c##r##_0 = _mm512_loadu_ps(C + (r) * ldc); \\\n                c##r##_1 = _mm512_loadu_ps(C + (r) * ldc + 16);\n#define FMA(r) { __m512 a = _mm512_set1_ps(A[(r) * lda]); \\\n                 c##r##_0 = _mm512_fmadd_ps(a, b0, c##r##_0); \\\n                 c##r##_1 = _mm512_fmadd_ps(a, b1, c##r##_1); }\n#define STORE(r) _mm512_storeu_ps(C + (r) * ldc, c##r##_0); \\\n                 _mm512_storeu_ps(C + (r) * ldc + 16, c##r##_1);\n#define ALL(X) X(0) X(1) X(2) X(3) X(4) X(5) X(6) X(7) X(8) X(9) X(10) X(11)\n\nstatic void kern(const float *restrict A, long lda, const float *restrict B,\n                 int kc, float *restrict C, long ldc, int first)\n{\n    ALL(DECL)\n    if (first) { ALL(ZERO) } else { ALL(LOAD) }\n    for (int k = 0; k < kc; k++) {\n        __m512 b0 = _mm512_load_ps(B);\n        __m512 b1 = _mm512_load_ps(B + 16);\n        ALL(FMA)\n        B += NR;\n        A++;\n    }\n    ALL(STORE)\n}\n\n#elif defined(__AVX2__) && defined(__FMA__)\n#define MR 6\n#define NR 16\n#define DECL(r) __m256 c##r##_0, c##r##_1;\n#define ZERO(r) c##r##_0 = _mm256_setzero_ps(); c##r##_1 = _mm256_setzero_ps();\n#define LOAD(r) c##r##_0 = _mm256_loadu_ps(C + (r) * ldc); \\\n                c##r##_1 = _mm256_loadu_ps(C + (r) * ldc + 8);\n#define FMA(r) { __m256 a = _mm256_broadcast_ss(A + (r) * lda); \\\n                 c##r##_0 = _mm256_fmadd_ps(a, b0, c##r##_0); \\\n                 c##r##_1 = _mm256_fmadd_ps(a, b1, c##r##_1); }\n#define STORE(r) _mm256_storeu_ps(C + (r) * ldc, c##r##_0); \\\n                 _mm256_storeu_ps(C + (r) * ldc + 8, c##r##_1);\n#define ALL(X) X(0) X(1) X(2) X(3) X(4) X(5)\n\nstatic void kern(const float *restrict A, long lda, const float *restrict B,\n                 int kc, float *restrict C, long ldc, int first)\n{\n    ALL(DECL)\n    if (first) { ALL(ZERO) } else { ALL(LOAD) }\n    for (int k = 0; k < kc; k++) {\n        __m256 b0 = _mm256_load_ps(B);\n        __m256 b1 = _mm256_load_ps(B + 8);\n        ALL(FMA)\n        B += NR;\n        A++;\n    }\n    ALL(STORE)\n}\n\n#else\n#define MR 4\n#define NR 16\nstatic void kern(const float *restrict A, long lda, const float *restrict B,\n                 int kc, float *restrict C, long ldc, int first)\n{\n    float c[MR][NR];\n    for (int r = 0; r < MR; r++)\n        for (int j = 0; j < NR; j++)\n            c[r][j] = first ? 0.0f : C[r * ldc + j];\n    for (int k = 0; k < kc; k++) {\n        const float *b = B + (long)k * NR;\n        for (int r = 0; r < MR; r++) {\n            float a = A[r * lda + k];\n            for (int j = 0; j < NR; j++)\n                c[r][j] += a * b[j];\n        }\n    }\n    for (int r = 0; r < MR; r++)\n        for (int j = 0; j < NR; j++)\n            C[r * ldc + j] = c[r][j];\n}\n#endif\n\nstatic float *bp_buf = NULL;\nstatic size_t bp_cap = 0;\n\nvoid matmul(const float *A, const float *B, float *C, int n)\n{\n    if (n <= 0) return;\n    const long N = n;\n    const int njp = (n + NR - 1) / NR;\n    const long npad = (long)njp * NR;\n    const int nkb = (n + KC - 1) / KC;\n\n    size_t need = (size_t)N * npad * sizeof(float);\n    need = (need + 63) & ~(size_t)63;\n    if (need > bp_cap) {\n        free(bp_buf);\n        bp_buf = (float *)aligned_alloc(64, need);\n        bp_cap = need;\n    }\n    float *Bp = bp_buf;\n\n    const int nib = (n + MC - 1) / MC;\n    const int njc = (int)((npad + NC - 1) / NC);\n    const int ntask = nib * njc;\n    const int alias = (n % 512) == 0;\n\n#pragma omp parallel\n    {\n        float ebuf[MR * KC] __attribute__((aligned(64)));\n        float ctmp[MR * NR] __attribute__((aligned(64)));\n\n        /* Pack B: panel (kb, jp) holds kc rows of NR contiguous columns,\n           zero-padded past column n. */\n#pragma omp for schedule(static)\n        for (int p = 0; p < nkb * njp; p++) {\n            int q = p / njp, jp = p % njp;\n            long k0 = (long)q * KC;\n            int kc = (int)(N - k0 < KC ? N - k0 : KC);\n            long j0 = (long)jp * NR;\n            float *dst = Bp + k0 * npad + j0 * kc;\n            int nv = (int)(N - j0 < NR ? N - j0 : NR);\n            for (int k = 0; k < kc; k++) {\n                const float *src = B + (k0 + k) * N + j0;\n                float *d = dst + (long)k * NR;\n                int j = 0;\n                for (; j < nv; j++) d[j] = src[j];\n                for (; j < NR; j++) d[j] = 0.0f;\n            }\n        }\n\n#pragma omp for schedule(dynamic, 1)\n        for (int t = 0; t < ntask; t++) {\n            int ib = t / njc, jc = t % njc;\n            long i0 = (long)ib * MC;\n            long i1 = i0 + MC < N ? i0 + MC : N;\n            long jcs = (long)jc * NC;\n            long jce = jcs + NC < npad ? jcs + NC : npad;\n\n            for (long k0 = 0; k0 < N; k0 += KC) {\n                int kc = (int)(N - k0 < KC ? N - k0 : KC);\n                int first = (k0 == 0);\n                const float *Bk = Bp + k0 * npad;\n\n                for (long i = i0; i < i1; i += MR) {\n                    int mr = (int)(i1 - i < MR ? i1 - i : MR);\n                    const float *Ap;\n                    long lda;\n                    if (mr < MR || alias) {\n                        for (int r = 0; r < MR; r++) {\n                            if (r < mr)\n                                memcpy(ebuf + r * kc, A + (i + r) * N + k0,\n                                       (size_t)kc * sizeof(float));\n                            else\n                                memset(ebuf + r * kc, 0,\n                                       (size_t)kc * sizeof(float));\n                        }\n                        Ap = ebuf;\n                        lda = kc;\n                    } else {\n                        Ap = A + i * N + k0;\n                        lda = N;\n                    }\n\n                    for (long j = jcs; j < jce; j += NR) {\n                        int nr = (int)(N - j < NR ? N - j : NR);\n                        const float *Bpp = Bk + j * kc;\n                        float *Cij = C + i * N + j;\n                        if (mr == MR && nr == NR) {\n                            kern(Ap, lda, Bpp, kc, Cij, N, first);\n                        } else {\n                            if (!first)\n                                for (int r = 0; r < mr; r++)\n                                    memcpy(ctmp + r * NR, Cij + r * N,\n                                           (size_t)nr * sizeof(float));\n                            kern(Ap, lda, Bpp, kc, ctmp, NR, first);\n                            for (int r = 0; r < mr; r++)\n                                memcpy(Cij + r * N, ctmp + r * NR,\n                                       (size_t)nr * sizeof(float));\n                        }\n                    }\n                }\n            }\n        }\n    }\n}\n```\n\nFLAGS: -O3 -march=native -fopenmp",
+  "session_id": "658402b3-e36b-430a-a26a-0c51bb4f4bd9",
+  "cost_usd": 0.20859820000000004,
+  "duration_s": 82.256,
+  "usage": {
+    "input_tokens": 2,
+    "cache_creation_input_tokens": 3453,
+    "cache_read_input_tokens": 531,
+    "output_tokens": 9043,
+    "output_tokens_details": {
+      "thinking_tokens": 5642
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 3453,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "not_available",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 9043,
+        "cache_read_input_tokens": 531,
+        "cache_creation_input_tokens": 3453,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 3453
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_usage": {
+    "claude-opus-5-5": {
+      "inputTokens": 2,
+      "outputTokens": 9043,
+      "cacheReadInputTokens": 531,
+      "cacheCreationInputTokens": 3453,
+      "webSearchRequests": 0,
+      "costUSD": 0.20859820000000004,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 5642,
+      "canonicalModel": "claude-opus-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "trial": 1
+}
